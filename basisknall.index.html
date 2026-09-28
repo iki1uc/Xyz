@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>IKI1UC · NAVI · ATOM-UHR · ORBIT · sli.open</title>
+
+<style>
+    /* ===== BASIS ===== */
+    body { background:#0b0b0b; color:#e0e0e0; font-family:Consolas; padding:15px; }
+    .container { max-width:1100px; margin:0 auto; }
+    h1 { color:#6cf; font-size:1.4rem; }
+    .flex { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:6px 0; }
+    .grid-2 { display:grid; grid-template-columns: 2fr 1fr; gap:15px; }
+    @media (max-width:800px) { .grid-2 { grid-template-columns:1fr; } }
+
+    /* ===== CANVAS ===== */
+    #orbitCanvas { background:#000; border:1px solid #333; display:block; width:100%; height:auto; aspect-ratio:700/300; }
+
+    /* ===== NAVI-PANEL ===== */
+    .navi-panel { background:#111; border:1px solid #2a3a4a; border-radius:8px; padding:10px; }
+    .navi-panel h2 { color:#8ab0c0; font-size:14px; margin:0 0 8px 0; border-bottom:1px solid #2a3a4a; padding-bottom:4px; }
+    .navi-row { display:flex; justify-content:space-between; font-size:13px; padding:2px 0; }
+    .navi-row .label { color:#5a7a8a; }
+    .navi-row .value { color:#8cf0d0; font-weight:bold; }
+    .navi-row .value.orange { color:#f0d080; }
+    .navi-row .value.pink { color:#ff8a9b; }
+
+    /* ===== ATOM-UHR ===== */
+    .atom-clock { background:#0a1a1a; border:1px solid #1a3a3a; border-radius:6px; padding:8px 12px; text-align:center; margin-top:6px; }
+    .atom-clock .time { font-size:28px; color:#6cf; letter-spacing:3px; font-weight:bold; }
+    .atom-clock .sub { font-size:12px; color:#5a7a8a; }
+
+    /* ===== WEGPUNKTE ===== */
+    .waypoint-list { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+    .waypoint-item { background:#1a1a2a; padding:2px 8px; border-radius:12px; font-size:12px; border:1px solid #2a3a4a; }
+    .waypoint-item.active { border-color:#6cf; background:#1a2a3a; color:#6cf; }
+
+    /* ===== BUTTONS / BADGES ===== */
+    .btn { padding:5px 14px; background:#222; color:#fff; border:1px solid #555; cursor:pointer; font-family:Consolas; font-size:13px; }
+    .btn:hover { border-color:#6cf; }
+    .btn.primary { border-color:#6cf; color:#6cf; }
+    .btn.primary:hover { background:#1a2a3a; }
+    .btn.sli { border-color:#ffd700; color:#ffd700; }
+    .btn.sli:hover { background:#2a2a0a; }
+    .badge { display:inline-block; padding:2px 12px; border-radius:12px; font-size:11px; border:1px solid #2a3a4a; }
+    .badge.aktiv { border-color:#8cf0d0; color:#8cf0d0; }
+    .badge.offen { border-color:#ffd700; color:#ffd700; background:#1a1a0a; }
+    .badge.geschlossen { border-color:#888; color:#888; }
+
+    /* ===== LOG ===== */
+    #log { background:#111; padding:10px; height:100px; overflow:auto; font-size:12px; margin-top:10px; border:1px solid #2a3a4a; border-radius:4px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- HEADER -->
+    <div class="flex" style="justify-content:space-between;">
+        <h1>🚢 IKI1UC · NAVI · ATOM‑UHR · ORBIT <span style="color:#5a7a8a;font-size:14px;font-weight:300;">v3 — mit sli.open</span></h1>
+        <div>
+            <span class="badge" id="sliStatusBadge">🔒 geschlossen</span>
+            <button class="btn sli" id="btnSliOpen">🔓 sli.open</button>
+        </div>
+    </div>
+
+    <!-- CANVAS + NAVI-PANEL -->
+    <div class="grid-2">
+        <!-- Linke Spalte: Canvas -->
+        <div>
+            <canvas id="orbitCanvas" width="700" height="300"></canvas>
+            <!-- Kurzstatus -->
+            <div class="flex" style="justify-content:space-between; font-size:12px; color:#5a7a8a; margin-top:4px;">
+                <span>🌀 Orbit: <span id="orbitStatus" class="badge aktiv">AKTIV</span></span>
+                <span>👑 Rolle: <span id="roleStatus" class="badge leader">LEADER</span></span>
+                <span>📡 Sync: <span id="syncStatus" class="ok">● verbunden</span></span>
+            </div>
+        </div>
+
+        <!-- Rechte Spalte: Navigation + Atomuhr -->
+        <div class="navi-panel">
+            <h2>🧭 NAVIGATION · EIGENSTATION</h2>
+            <div class="navi-row"><span class="label">Position (Orbit‑Index)</span><span class="value" id="naviIndex">0</span></div>
+            <div class="navi-row"><span class="label">Symbol</span><span class="value orange" id="naviSymbol">◉</span></div>
+            <div class="navi-row"><span class="label">Kurs (Heading)</span><span class="value" id="naviHeading">000°</span></div>
+            <div class="navi-row"><span class="label">Geschw. (Knoten)</span><span class="value pink" id="naviSpeed">0.0</span></div>
+            <div class="navi-row"><span class="label">Axiom‑Modus</span><span class="value" id="naviMode">IQQ</span></div>
+
+            <!-- ATOM-UHR -->
+            <div class="atom-clock">
+                <div class="time" id="atomTime">00:00:00.000</div>
+                <div class="sub">⚛️ Atomuhr · Takt <span id="atomTick">0</span> · Δt <span id="atomDelta">0.0</span>ms</div>
+            </div>
+
+            <!-- WEGPUNKTE (die Symbole des Pfades) -->
+            <div style="margin-top:8px;">
+                <div style="font-size:11px; color:#5a7a8a;">📍 Wegpunkte (Orbit‑Pfad):</div>
+                <div class="waypoint-list" id="waypointList"></div>
+            </div>
+
+            <!-- Steuerung -->
+            <div class="flex" style="margin-top:8px;">
+                <button class="btn" id="btnPlay">⏸ Pause</button>
+                <button class="btn" id="btnStep">▶ Schritt</button>
+                <button class="btn" id="btnReset">⟲ Reset</button>
+                <span class="label">Speed</span>
+                <input type="range" id="speedSlider" min="1" max="10" value="3" style="width:80px;">
+                <span class="label" id="speedLabel">3×</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- AXIOM-ANZEIGE (unterhalb) -->
+    <div class="flex" style="font-size:13px;color:#8ab0c0;gap:20px; margin-top:8px;">
+        <span>🌀 IQQ: <span id="axiomIQQ" style="color:#ffd700;">9 → 3 → 9 → 3</span></span>
+        <span>◎ OCTA: <span id="axiomOCTA" style="color:#6cf;">◉ ◆ △ ▣ ↺</span></span>
+        <span>📐 A81: <span id="axiomA81" style="color:#b388ff;">27 · 81 · 243 · 729</span></span>
+    </div>
+
+    <!-- LOG -->
+    <div id="log">System geladen · Orbit v3 · Navi + Atomuhr aktiv · sli.open geschlossen</div>
+
+</div>
+
+<script>
+"use strict";
+/* ================================================================
+   IKI1UC · Orbit v3 + NAVI + ATOM-UHR + sli.open
+   ================================================================ */
+
+  // ─── KONFIGURATION ──────────────────────────────────────────────
+  const ORBIT = [
+    "◉","↗","↘","3","9","↘","↗","◎","↗","↘","3","9","↘","↗",
+    "◎","↗","↘","81","◆","↘","↗","△","↗","↘","27","▣","↘","↗","3","↺"
+  ];
+
+  const AXIOM_MAP = {
+    '3': 'IQQ', '9': 'IQQ',
+    '◎': 'OCTA', '◉': 'OCTA', '◆': 'OCTA', '△': 'OCTA', '▣': 'OCTA', '↺': 'OCTA',
+    '81': 'A81', '27': 'A81', '243': 'A81', '729': 'A81'
+  };
+
+  // ─── STATE ──────────────────────────────────────────────────────
+  const state = {
+    index: 0,
+    running: true,
+    speed: 3,
+    mode: 'IQQ',
+    history: [],
+    isLeader: false,
+    accumulator: 0,
+    lastFrame: null,
+    sliOpen: false,          // 🔓 sli.open – wenn true, ist die Schleuse offen
+    atomTick: 0,
+    atomDelta: 0
+  };
+
+  // ─── DOM-REFERENZEN ────────────────────────────────────────────
+  const canvas = document.getElementById('orbitCanvas');
+  const ctx = canvas.getContext('2d');
+  const logBox = document.getElementById('log');
+
+  // ─── LEADER-ELECTION (wie gehabt) ──────────────────────────────
+  const LEADER_KEY = 'iki1uc-orbit-leader';
+  const LEADER_TIMEOUT = 2000;
+  const HEARTBEAT_EVERY = 500;
+
+  function tryClaimLeadership() {
+    const now = Date.now();
+    const raw = localStorage.getItem(LEADER_KEY);
+    const last = raw ? Number(raw) : 0;
+    if (state.isLeader) {
+      localStorage.setItem(LEADER_KEY, String(now));
+      return;
+    }
+    if (now - last > LEADER_TIMEOUT) {
+      localStorage.setItem(LEADER_KEY, String(now));
+      state.isLeader = true;
+      updateRoleBadge();
+      log('👑 Leader übernommen');
+    }
+  }
+
+  function updateRoleBadge() {
+    const el = document.getElementById('roleStatus');
+    el.textContent = state.isLeader ? 'LEADER' : 'FOLLOWER';
+    el.className = 'badge ' + (state.isLeader ? 'leader' : 'follower');
+  }
+
+  setInterval(tryClaimLeadership, HEARTBEAT_EVERY);
+  tryClaimLeadership();
+
+  // ─── BROADCASTCHANNEL (Sync) ──────────────────────────────────
+  let bc = null;
+  try {
+    bc = new BroadcastChannel('iki1uc-orbit');
+    bc.onmessage = (e) => {
+      const data = e.data;
+      if (!data) return;
+      if (data.type === 'orbit.step' && !state.isLeader) {
+        state.index = data.index;
+        state.history.push(data.index);
+        if (state.history.length > 10) state.history.shift();
+        syncStatus('● synchronisiert', 'ok');
+        log(`📡 Sync‑Schritt: ${data.symbol}`);
+        updateAllUI();
+      }
+      if (data.type === 'orbit.reset' && !state.isLeader) {
+        state.index = 0;
+        state.history = [];
+        updateAllUI();
+        log('📡 Sync‑Reset');
+      }
+      if (data.type === 'orbit.mode' && !state.isLeader) {
+        state.mode = data.mode;
+        applyModeButtons(data.mode);
+        updateAllUI();
+      }
+      if (data.type === 'sli.open') {
+        state.sliOpen = data.open;
+        updateSliUI();
+        log(`🔓 sli.open = ${state.sliOpen ? 'OFFEN' : 'GESCHLOSSEN'}`);
+      }
+    };
+    setTimeout(() => syncStatus('● verbunden', 'ok'), 500);
+  } catch (_) {
+    syncStatus('○ kein BC', 'err');
+  }
+
+  function broadcast(msg) {
+    if (!bc) return;
+    try { bc.postMessage(msg); } catch (_) {}
+  }
+
+  function syncStatus(text, cls) {
+    const el = document.getElementById('syncStatus');
+    el.textContent = text;
+    el.className = cls || 'ok';
+  }
+
+  // ─── UI-UPDATES ────────────────────────────────────────────────
+  function updateAllUI() {
+    const sym = ORBIT[state.index] || '?';
+    const axiom = AXIOM_MAP[sym] || '—';
+    // Navi
+    document.getElementById('naviIndex').textContent = state.index;
+    document.getElementById('naviSymbol').textContent = sym;
+    document.getElementById('naviHeading').textContent = String(state.index * 12).padStart(3,'0') + '°';
+    document.getElementById('naviSpeed').textContent = (state.speed * 0.7 + state.index * 0.02).toFixed(1);
+    document.getElementById('naviMode').textContent = state.mode;
+    // Axiom‑Zähler
+    document.getElementById('axiomIQQ').textContent = state.mode === 'IQQ' ? '● aktiv' : '9 → 3 → 9 → 3';
+    document.getElementById('axiomOCTA').textContent = state.mode === 'OCTA' ? '● aktiv' : '◉ ◆ △ ▣ ↺';
+    document.getElementById('axiomA81').textContent = state.mode === 'A81' ? '● aktiv' : '27 · 81 · 243 · 729';
+    // Wegpunkte
+    renderWaypoints();
+    // Orbit‑Status
+    const orbitStatus = document.getElementById('orbitStatus');
+    orbitStatus.textContent = state.running ? 'AKTIV' : 'PAUSE';
+    orbitStatus.className = 'badge ' + (state.running ? 'aktiv' : 'pause');
+    // sli.open UI
+    updateSliUI();
+    // Canvas wird im Loop gezeichnet
+  }
+
+  function updateSliUI() {
+    const badge = document.getElementById('sliStatusBadge');
+    const btn = document.getElementById('btnSliOpen');
+    if (state.sliOpen) {
+      badge.textContent = '🔓 offen';
+      badge.className = 'badge offen';
+      btn.textContent = '🔒 schließen';
+      btn.classList.add('primary');
+    } else {
+      badge.textContent = '🔒 geschlossen';
+      badge.className = 'badge geschlossen';
+      btn.textContent = '🔓 sli.open';
+      btn.classList.remove('primary');
+    }
+  }
+
+  function renderWaypoints() {
+    const container = document.getElementById('waypointList');
+    container.innerHTML = '';
+    // Zeige die nächsten 8 Symbole ab aktueller Position
+    for (let i = 0; i < 8; i++) {
+      const idx = (state.index + i) % ORBIT.length;
+      const sym = ORBIT[idx];
+      const span = document.createElement('span');
+      span.className = 'waypoint-item' + (i === 0 ? ' active' : '');
+      span.textContent = sym;
+      container.appendChild(span);
+    }
+  }
+
+  function applyModeButtons(mode) {
+    document.querySelectorAll('[id^="btnMode"]').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById('btnMode' + mode);
+    if (btn) btn.classList.add('active');
+  }
+
+  // ─── CANVAS-ZEICHNUNG (wie gehabt, aber mit Navi‑Overlay) ────
+  function drawOrbit() {
+    const w = canvas.width, h = canvas.height;
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, w, h);
+
+    // Pfad (letzte 5)
+    const history = state.history.slice(-5);
+    history.forEach((idx, i) => {
+      const alpha = 0.1 + (i / 5) * 0.3;
+      const x = 80 + (w - 160) * (i / 4);
+      const y = h - 30;
+      ctx.fillStyle = `rgba(108, 204, 255, ${alpha})`;
+      ctx.font = '16px Consolas';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(ORBIT[idx] || '?', x, y);
+      if (i > 0) {
+        ctx.strokeStyle = `rgba(108, 204, 255, ${alpha * 0.3})`;
+        ctx.lineWidth = 1;
+        const prevX = 80 + (w - 160) * ((i - 1) / 4);
+        ctx.beginPath();
+        ctx.moveTo(prevX, y);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+    });
+
+    // Hauptsymbol
+    const symbol = ORBIT[state.index] || '?';
+    ctx.fillStyle = '#6cf';
+    ctx.font = '60px Consolas';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = '#6cf';
+    ctx.shadowBlur = 20;
+    ctx.fillText(symbol, w / 2, h / 2 - 20);
+    ctx.shadowBlur = 0;
+
+    // Index + Axiom
+    const axiom = AXIOM_MAP[symbol] || '—';
+    ctx.fillStyle = '#5a7a8a';
+    ctx.font = '14px Consolas';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`#${state.index} · ${axiom}`, w / 2, h / 2 + 40);
+
+    // Speed + Modus + sli.open‑Status
+    ctx.fillStyle = '#3a4a5a';
+    ctx.font = '11px Consolas';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`⏩ ${state.speed}× · ${state.mode} · sli.${state.sliOpen ? 'OPEN' : 'CLOSED'}`, 12, h - 6);
+    ctx.textAlign = 'right';
+    ctx.fillText(`Symbol ${state.index + 1}/${ORBIT.length}`, w - 12, h - 6);
+  }
+
+  // ─── ORBIT-STEP ────────────────────────────────────────────────
+  function stepOrbit() {
+    const next = (state.index + 1) % ORBIT.length;
+    state.index = next;
+    state.history.push(next);
+    if (state.history.length > 10) state.history.shift();
+    // Atomuhr: Takt erhöhen
+    state.atomTick++;
+    const sym = ORBIT[next];
+    const axiom = AXIOM_MAP[sym] || null;
+    if (axiom && state.mode === axiom) {
+      state.axiomCount[axiom] = (state.axiomCount[axiom] || 0) + 1;
+    }
+    updateAllUI();
+    log(`Orbit‑Schritt → ${sym} (${axiom || '—'})`);
+    broadcast({ type: 'orbit.step', index: state.index, symbol: sym });
+  }
+
+  // ─── ATOM-UHR (wird im Loop aktualisiert) ──────────────────────
+  function updateAtomClock(now) {
+    const time = new Date(now);
+    const ms = time.getMilliseconds();
+    const sec = time.getSeconds();
+    const min = time.getMinutes();
+    const hrs = time.getHours();
+    const timeStr = `${String(hrs).padStart(2,'0')}:${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+    document.getElementById('atomTime').textContent = timeStr;
+    document.getElementById('atomTick').textContent = state.atomTick;
+    document.getElementById('atomDelta').textContent = (state.atomDelta || 0).toFixed(1);
+  }
+
+  // ─── HAUPT-LOOP ────────────────────────────────────────────────
+  function loop(now) {
+    if (state.lastFrame === null) state.lastFrame = now;
+    const delta = now - state.lastFrame;
+    state.lastFrame = now;
+    state.atomDelta = delta;
+
+    if (state.running && state.isLeader) {
+      state.accumulator += delta;
+      const stepTime = Math.max(100, 800 - state.speed * 60);
+      let guard = 0;
+      while (state.accumulator >= stepTime && guard < 20) {
+        stepOrbit();
+        state.accumulator -= stepTime;
+        guard++;
+      }
+    } else {
+      state.accumulator = 0;
+    }
+
+    drawOrbit();
+    updateAtomClock(now);
+    requestAnimationFrame(loop);
+  }
+
+  // ─── EVENT-BINDING ─────────────────────────────────────────────
+  document.getElementById('btnPlay').addEventListener('click', () => {
+    state.running = !state.running;
+    updateAllUI();
+    log(state.running ? '▶ Fortgesetzt' : '⏸ Pause');
+  });
+
+  document.getElementById('btnStep').addEventListener('click', () => {
+    if (state.isLeader) stepOrbit();
+    else log('⏭ Schritt nur Leader');
+  });
+
+  document.getElementById('btnReset').addEventListener('click', () => {
+    if (state.isLeader) {
+      state.index = 0;
+      state.history = [];
+      state.atomTick = 0;
+      updateAllUI();
+      log('⟲ Reset');
+      broadcast({ type: 'orbit.reset' });
+    } else log('⟲ Reset nur Leader');
+  });
+
+  document.getElementById('btnSliOpen').addEventListener('click', () => {
+    state.sliOpen = !state.sliOpen;
+    updateSliUI();
+    broadcast({ type: 'sli.open', open: state.sliOpen });
+    log(`🔓 sli.open = ${state.sliOpen ? 'OFFEN' : 'GESCHLOSSEN'}`);
+    if (state.sliOpen) {
+      log('🚪 Schleuse offen – externe Navigation möglich');
+    } else {
+      log('🔒 Schleuse geschlossen – nur intern');
+    }
+  });
+
+  const speedSlider = document.getElementById('speedSlider');
+  const speedLabel = document.getElementById('speedLabel');
+  speedSlider.addEventListener('input', () => {
+    state.speed = parseInt(speedSlider.value, 10);
+    speedLabel.textContent = state.speed + '×';
+  });
+
+  // Modus-Buttons (simplifiziert)
+  document.querySelectorAll('[id^="btnMode"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.id.replace('btnMode','');
+      state.mode = mode;
+      applyModeButtons(mode);
+      updateAllUI();
+      broadcast({ type: 'orbit.mode', mode });
+      log(`🌀 Modus: ${mode}`);
+    });
+  });
+
+  // Tastatur
+  document.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { e.preventDefault(); document.getElementById('btnPlay').click(); }
+    if (e.key === 'ArrowRight' && state.isLeader) stepOrbit();
+    if (e.key === 'r' || e.key === 'R') document.getElementById('btnReset').click();
+    if (e.key === 's' || e.key === 'S') document.getElementById('btnSliOpen').click();
+  });
+
+  // ─── LOG-Funktion ──────────────────────────────────────────────
+  function log(msg) {
+    const time = new Date().toLocaleTimeString();
+    const line = document.createElement('div');
+    line.textContent = `[${time}] ${msg}`;
+    logBox.appendChild(line);
+    while (logBox.children.length > 60) logBox.removeChild(logBox.firstChild);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  // ─── INIT ──────────────────────────────────────────────────────
+  function init() {
+    state.history.push(0);
+    updateAllUI();
+    updateRoleBadge();
+    applyModeButtons('IQQ');
+    log('🚀 IKI1UC · Orbit + Navi + Atomuhr + sli.open gestartet');
+    log('⌨️  Leertaste=Pause  →=Schritt  r=Reset  s=sli.open');
+    requestAnimationFrame(loop);
+  }
+
+  window.addEventListener('error', (e) => log('⚠️ Fehler: ' + e.message), true);
+  setInterval(updateRoleBadge, HEARTBEAT_EVERY);
+  init();
+</script>
+
+</body>
+</html>
