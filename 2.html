@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>algo · 3 ringe · 27 · snapshot · weiterleitung</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#02060a;color:#c8d8e8;font-family:Consolas,monospace;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;
+       padding:16px;gap:16px;flex-wrap:wrap}
+  #stage{position:relative}
+  canvas{border:1px solid #ffffff10;border-radius:6px;background:#02060a;display:block}
+  #side{min-width:280px;font-size:11px;line-height:1.7}
+  h1{font-size:12px;letter-spacing:4px;color:#ff3ea5;margin-bottom:12px;
+     font-weight:400;text-transform:uppercase}
+  h2{font-size:9px;letter-spacing:2px;color:#5cf0ff;margin:12px 0 6px;
+     font-weight:400;text-transform:uppercase;border-bottom:1px solid #ffffff08;
+     padding-bottom:3px}
+  .r{display:flex;justify-content:space-between;padding:2px 0;font-size:10px;
+     border-bottom:1px dashed #ffffff08}
+  .r span:first-child{color:#5a7288}
+  .r span:last-child{color:#c8d8e8;font-weight:bold}
+  .ok{color:#39ff88!important}
+  .bad{color:#ff3ea5!important}
+  .amber{color:#ff8a2a!important}
+  .cyan{color:#5cf0ff!important}
+  .violet{color:#b388ff!important}
+  button{width:100%;margin-top:6px;background:#0c1828;border:1px solid #ffffff22;
+         color:#c8d8e8;padding:8px;border-radius:3px;font-family:inherit;
+         font-size:10px;letter-spacing:2px;cursor:pointer;text-transform:uppercase}
+  button:hover{border-color:#ff3ea5;color:#ff3ea5}
+  #log{margin-top:10px;height:140px;overflow-y:auto;font-size:9.5px;
+       line-height:1.55;color:#5a7288;border-top:1px solid #ffffff08;padding-top:6px}
+  #log .ln{padding:1px 0;border-bottom:1px solid #ffffff04}
+  #log .t{color:#2a3644;margin-right:4px}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv" width="640" height="640"></canvas></div>
+<div id="side">
+  <h1>◈ algo · 1 durchlauf</h1>
+
+  <h2>◈ 3 ringe · 27 punkte</h2>
+  <div class="r"><span>ring a · außen</span><span id="sA">—</span></div>
+  <div class="r"><span>ring b · mitte</span><span id="sB">—</span></div>
+  <div class="r"><span>ring c · innen</span><span id="sC">—</span></div>
+  <div class="r"><span>kern</span><span id="sK">—</span></div>
+
+  <h2>◈ snapshot · aktion</h2>
+  <div class="r"><span>von</span><span id="sVon" class="cyan">—</span></div>
+  <div class="r"><span>wert</span><span id="sWert" class="amber">—</span></div>
+  <div class="r"><span>element</span><span id="sEl" class="violet">—</span></div>
+  <div class="r"><span>nach</span><span id="sNach" class="cyan">—</span></div>
+  <div class="r"><span>check 1</span><span id="sC1">—</span></div>
+  <div class="r"><span>check 2</span><span id="sC2">—</span></div>
+  <div class="r"><span>check 3</span><span id="sC3">—</span></div>
+  <div class="r"><span>ergebnis</span><span id="sErg">—</span></div>
+
+  <button id="btnStep">▶ schritt</button>
+  <button id="btnReset">↺ reset</button>
+
+  <h2>◈ log</h2>
+  <div id="log"></div>
+</div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════
+   ALGO · 3 RINGE à 9 PUNKTE = 27 + KERN = 28
+   Snapshot → Weiterleitung → Prüfung → Commit/Rollback
+   ═══════════════════════════════════════════════════════════════ */
+
+// ─── ELEMENTE (dein Eis/Feuer/Dampf/Regen) ─────────────────────
+const EL = [
+  {name:'eis',    col:'#5cf0ff', bias:-1},
+  {name:'feuer',  col:'#ff8a2a', bias:+1},
+  {name:'dampf',  col:'#b388ff', bias:0},
+  {name:'regen',  col:'#39ff88', bias:-0.5},
+];
+
+// ─── KNOTEN · 3 Ringe à 9 + Kern ────────────────────────────────
+function ringPos(ri, i, total){
+  const R = 0.28 + ri * 0.16;
+  const a = (i / total) * Math.PI * 2 - Math.PI/2;
+  return {x: R * Math.cos(a), y: R * Math.sin(a), r: 0.05};
+}
+
+const NODES = [];
+// ring 0 · außen (index 0..8)
+for(let i=0;i<9;i++) NODES.push({ring:0, i, ...ringPos(0,i,9), wert:0, el:null});
+// ring 1 · mitte (9..17)
+for(let i=0;i<9;i++) NODES.push({ring:1, i, ...ringPos(1,i,9), wert:0, el:null});
+// ring 2 · innen (18..26)
+for(let i=0;i<9;i++) NODES.push({ring:2, i, ...ringPos(2,i,9), wert:0, el:null});
+// kern
+NODES.push({ring:3, i:0, x:0, y:0, r:0.08, wert:0, el:null, kern:true});
+
+// ─── WERTE initialisieren ─────────────────────────────────────
+function initWerte(){
+  NODES.forEach((n, idx) => {
+    // Werte aus 3-9-81 Achse
+    const base = n.kern ? 81 : [3,9,81][n.ring];
+    const seed = (n.i + 1);
+    n.wert = base * seed / 9;
+    n.el = EL[(idx + n.ring) % 4];
+    n.snap = null;
+  });
+}
+
+// ─── STATE ────────────────────────────────────────────────────
+const S = {
+  tick: 0,
+  aktion: null,
+  trail: [],   // für visualisierung
+};
+
+// ─── CANVAS ───────────────────────────────────────────────────
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W=640, SQ, CX, CY, RAD;
+
+function resize(){
+  const r = cv.getBoundingClientRect();
+  const size = Math.min(window.innerWidth-340, window.innerHeight-40, 640);
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  W = size; SQ = size;
+  cv.width = W*dpr; cv.height = W*dpr;
+  cv.style.width = W+'px'; cv.style.height = W+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  CX = W/2; CY = W/2; RAD = Math.min(W, W) * 0.42;
+  draw();
+}
+addEventListener('resize', resize);
+
+// ─── POSITION zu canvas-koord ────────────────────────────────
+function toXY(n){ return {x: CX + n.x * RAD * 2, y: CY + n.y * RAD * 2}; }
+
+// ─── ZEICHNEN ────────────────────────────────────────────────
+function draw(){
+  ctx.fillStyle = '#02060a';
+  ctx.fillRect(0, 0, W, W);
+
+  // 3 ringe als kreise
+  [0, 1, 2].forEach(ri => {
+    const R = (0.28 + ri * 0.16) * RAD * 2;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(92,240,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  // achsen-linien
+  ctx.strokeStyle = 'rgba(255,62,165,0.05)';
+  for(let a=0;a<9;a++){
+    const ang = (a/9)*Math.PI*2 - Math.PI/2;
+    ctx.beginPath();
+    ctx.moveTo(CX, CY);
+    ctx.lineTo(CX + Math.cos(ang)*RAD*2*0.78, CY + Math.sin(ang)*RAD*2*0.78);
+    ctx.stroke();
+  }
+
+  // trail · letzte weiterleitungen
+  S.trail.forEach((t, i) => {
+    const a = toXY(NODES[t.von]);
+    const b = toXY(NODES[t.nach]);
+    const alpha = 0.2 + (i / Math.max(1, S.trail.length)) * 0.6;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.strokeStyle = t.ok ? `rgba(57,255,136,${alpha})` : `rgba(255,62,165,${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4,3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  // knoten
+  NODES.forEach((n, i) => {
+    const p = toXY(n);
+    const rad = n.kern ? 18 : 7;
+
+    // glow
+    const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, rad*3);
+    grd.addColorStop(0, (n.el?.col || '#5a7288') + '88');
+    grd.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, rad*3, 0, Math.PI*2);
+    ctx.fill();
+
+    // punkt
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, rad, 0, Math.PI*2);
+    ctx.fillStyle = n.el?.col || '#5a7288';
+    ctx.fill();
+    ctx.strokeStyle = '#02060a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // wert-nummer in der mitte
+    if(!n.kern){
+      ctx.font = '8px Consolas';
+      ctx.fillStyle = '#02060a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round(n.wert), p.x, p.y+0.5);
+    } else {
+      ctx.font = '11px Consolas';
+      ctx.fillStyle = '#02060a';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('◈', p.x, p.y+1);
+    }
+  });
+
+  // kern-ring extra
+  ctx.beginPath();
+  ctx.arc(CX, CY, RAD*2*0.12, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(255,62,165,0.3)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+// ─── LOG ──────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+function log(msg, cls=''){
+  const t = new Date().toLocaleTimeString('de-DE');
+  const d = document.createElement('div');
+  d.className='ln';
+  d.innerHTML = `<span class="t">[${t}]</span> <span class="${cls}">${msg}</span>`;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+  while(logEl.children.length > 40) logEl.removeChild(logEl.firstChild);
+}
+
+// ─── ALGORITHMUS · 1 SCHRITT ─────────────────────────────────
+function step(){
+  S.tick++;
+
+  // 1. QUELLE wählen
+  const vonIdx = Math.floor(Math.random() * (NODES.length - 1));
+  const von = NODES[vonIdx];
+
+  // 2. ZIEL wählen (muss anderer knoten sein)
+  let nachIdx;
+  do { nachIdx = Math.floor(Math.random() * (NODES.length - 1)); } while(nachIdx === vonIdx);
+  const nach = NODES[nachIdx];
+
+  // 3. SNAPSHOT
+  const snap = {
+    feld: `${von.ring}-${von.i}`,
+    wert: von.wert,
+    el: von.el,
+    zeit: S.tick
+  };
+
+  // 4. DREI CHECKS am Ziel
+  //    check1: passt das element zum ring?
+  const c1 = nach.el !== null;
+  //    check2: ist der wert im rahmen (0..81)?
+  const c2 = snap.wert >= 0 && snap.wert <= 81;
+  //    check3: unterscheidet er sich genug vom ziel? (sonst kein nutzen)
+  const c3 = Math.abs(nach.wert - snap.wert) > 1;
+
+  const ok = c1 && c2 && c3;
+
+  // 5. COMMIT oder ROLLBACK
+  if(ok){
+    // tausch: wert + element übernehmen
+    const altWert = nach.wert;
+    nach.wert = snap.wert;
+    nach.el = snap.el;
+    von.wert = altWert;   // gegenseitig (wie ein zug im schach)
+    log(`◉ ${snap.feld}→${nach.ring}-${nach.i} · wert ${snap.wert.toFixed(1)} · ${snap.el.name} · OK`, 'ok');
+  } else {
+    log(`✗ ${snap.feld}→${nach.ring}-${nach.i} · check ${[c1,c2,c3].map(x=>x?'✓':'✗').join('')} · zurück`, 'bad');
+  }
+
+  // trail
+  S.trail.push({von: vonIdx, nach: nachIdx, ok});
+  if(S.trail.length > 12) S.trail.shift();
+
+  // UI update
+  document.getElementById('sA').textContent = summe(0).toFixed(1);
+  document.getElementById('sB').textContent = summe(1).toFixed(1);
+  document.getElementById('sC').textContent = summe(2).toFixed(1);
+  document.getElementById('sK').textContent = NODES[27].wert.toFixed(1);
+  document.getElementById('sVon').textContent = snap.feld;
+  document.getElementById('sWert').textContent = snap.wert.toFixed(1);
+  document.getElementById('sEl').textContent = snap.el.name;
+  document.getElementById('sNach').textContent = `${nach.ring}-${nach.i}`;
+  document.getElementById('sC1').innerHTML = c1 ? '<span class="ok">element ✓</span>' : '<span class="bad">element ✗</span>';
+  document.getElementById('sC2').innerHTML = c2 ? '<span class="ok">wert ✓</span>' : '<span class="bad">wert ✗</span>';
+  document.getElementById('sC3').innerHTML = c3 ? '<span class="ok">unterschied ✓</span>' : '<span class="bad">unterschied ✗</span>';
+  document.getElementById('sErg').innerHTML = ok ? '<span class="ok">COMMIT</span>' : '<span class="bad">ROLLBACK</span>';
+
+  draw();
+}
+
+function summe(ring){
+  return NODES.filter(n=>n.ring===ring).reduce((a,n)=>a+n.wert,0);
+}
+
+// ─── BUTTONS ──────────────────────────────────────────────────
+document.getElementById('btnStep').onclick = step;
+document.getElementById('btnReset').onclick = () => {
+  initWerte();
+  S.trail = [];
+  S.tick = 0;
+  logEl.innerHTML = '';
+  log('↺ reset · 3 ringe · 27 punkte · kern', 'amber');
+  document.getElementById('sVon').textContent = '—';
+  document.getElementById('sWert').textContent = '—';
+  document.getElementById('sEl').textContent = '—';
+  document.getElementById('sNach').textContent = '—';
+  document.getElementById('sC1').textContent = '—';
+  document.getElementById('sC2').textContent = '—';
+  document.getElementById('sC3').textContent = '—';
+  document.getElementById('sErg').textContent = '—';
+  document.getElementById('sA').textContent = summe(0).toFixed(1);
+  document.getElementById('sB').textContent = summe(1).toFixed(1);
+  document.getElementById('sC').textContent = summe(2).toFixed(1);
+  document.getElementById('sK').textContent = NODES[27].wert.toFixed(1);
+  draw();
+};
+
+// ─── INIT ─────────────────────────────────────────────────────
+initWerte();
+resize();
+document.getElementById('sA').textContent = summe(0).toFixed(1);
+document.getElementById('sB').textContent = summe(1).toFixed(1);
+document.getElementById('sC').textContent = summe(2).toFixed(1);
+document.getElementById('sK').textContent = NODES[27].wert.toFixed(1);
+
+log('◈ algo bereit · 3 ringe · 27 punkte · kern', 'ok');
+log('◈ elemente: eis · feuer · dampf · regen', 'violet');
+log('→ klick "schritt" für einen durchlauf', 'amber');
+
+// public
+window.algo = {
+  step,
+  reset: () => document.getElementById('btnReset').click(),
+  knoten: (i) => NODES[i],
+  ringe: () => [0,1,2].map(r => ({ring:r, summe:summe(r), n:NODES.filter(n=>n.ring===r).length})),
+  kern: () => NODES[27],
+};
+</script>
+</body>
+</html>
