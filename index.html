@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>wonder · wait state · 3 9 81 3</title>
+<style>
+  :root{
+    --bg:#06080c; --pane:#0b0f18; --pane2:#0d121c;
+    --linie:#161c2a; --linie2:#1e2638;
+    --fg:#c8d8e8; --dim:#4a5a72; --glow:#5cf0ff;
+    --pink:#ff3ea5; --gold:#ffd700; --green:#39ff88;
+    --orange:#ff8a2a; --violet:#b388ff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:var(--bg);color:var(--fg);height:100%;overflow:hidden;
+            font:11px/1.4 Consolas,"SF Mono",Menlo,monospace}
+
+  #wonder{
+    display:grid; height:100vh;
+    grid-template-columns:230px 1fr 240px;
+    grid-template-rows: 28px 1fr 130px;
+    grid-template-areas:
+      "top   top   top"
+      "left  main  right"
+      "left  bottom right";
+    gap:1px; background:var(--linie);
+    border:1px solid var(--linie);
+  }
+  #top{grid-area:top;background:var(--pane);display:flex;align-items:center;
+       padding:0 12px;gap:18px;font-size:10px;letter-spacing:1.5px}
+  #top .brand{color:var(--glow);letter-spacing:3px}
+  #top .badge{padding:2px 8px;border:1px solid var(--linie2);border-radius:10px;
+              color:var(--dim);font-size:9px;letter-spacing:1px}
+  #top .badge.on{color:var(--glow);border-color:var(--glow)}
+  #top .badge.wait{color:var(--gold);border-color:var(--gold)}
+  #top .spacer{flex:1}
+  #top .time{color:var(--dim);letter-spacing:2px}
+
+  #left{grid-area:left;background:var(--pane);overflow:auto;padding:8px}
+  #right{grid-area:right;background:var(--pane);overflow:auto;padding:8px}
+  #main{grid-area:main;background:var(--bg);display:grid;
+        grid-template-columns:1fr 1fr;gap:1px;background:var(--linie)}
+  #bottom{grid-area:bottom;background:var(--bg);display:grid;
+          grid-template-columns:repeat(3,1fr);gap:1px;background:var(--linie)}
+
+  .panel{background:var(--pane);position:relative;overflow:hidden}
+  .panel .cap{
+    position:absolute;top:6px;left:10px;font-size:9px;letter-spacing:2px;
+    color:var(--dim);text-transform:uppercase;z-index:2;pointer-events:none;
+  }
+  .panel .cap b{color:var(--glow);font-weight:400}
+  .panel canvas{display:block;width:100%;height:100%}
+
+  /* linke spalte · parameter */
+  .grupp{margin-bottom:14px}
+  .grupp h3{
+    font-size:9px;letter-spacing:2px;color:var(--glow);font-weight:400;
+    padding-bottom:4px;margin-bottom:6px;border-bottom:1px solid var(--linie2);
+    text-transform:uppercase;
+  }
+  .reihe{display:flex;justify-content:space-between;align-items:center;
+         padding:2px 0;font-size:10px;color:var(--dim)}
+  .reihe span:last-child{color:var(--fg)}
+  .reihe .w{color:var(--gold)}
+  .reihe .p{color:var(--pink)}
+  .reihe .g{color:var(--green)}
+  .balken{height:3px;background:var(--linie2);border-radius:2px;margin-top:3px;
+          overflow:hidden}
+  .balken i{display:block;height:100%;background:var(--glow);
+            transition:width .4s ease;box-shadow:0 0 6px var(--glow)}
+
+  /* rechte spalte · status */
+  .srow{display:flex;justify-content:space-between;font-size:10px;
+        padding:3px 0;border-bottom:1px dashed rgba(255,255,255,.04)}
+  .srow span:first-child{color:var(--dim)}
+  .srow span:last-child{color:var(--fg);font-weight:bold}
+  .srow .cyan{color:var(--glow)}
+  .srow .gold{color:var(--gold)}
+  .srow .pink{color:var(--pink)}
+  .srow .green{color:var(--green)}
+
+  /* gate */
+  #gate{
+    position:fixed;inset:0;background:#04060a;z-index:100;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:20px;cursor:pointer;transition:opacity .9s ease;
+  }
+  #gate.gone{opacity:0;pointer-events:none}
+  #gate h1{font-size:26px;letter-spacing:12px;color:var(--glow);
+           font-weight:400;text-transform:uppercase;
+           text-shadow:0 0 24px rgba(92,240,255,.6)}
+  #gate .unt{font-size:11px;letter-spacing:4px;color:var(--dim)}
+  #gate .hint{margin-top:24px;font-size:11px;letter-spacing:3px;color:var(--gold);
+              animation:pulse 2s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+
+  /* wait overlay */
+  #waitmark{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+    font-size:80px;letter-spacing:24px;color:var(--gold);
+    text-shadow:0 0 40px var(--gold);opacity:0;pointer-events:none;
+    transition:opacity .6s ease;z-index:50;font-weight:200;
+  }
+  #waitmark.on{opacity:.85}
+
+  /* scan lines */
+  #wonder::after{
+    content:"";position:absolute;inset:0;pointer-events:none;z-index:10;
+    background:repeating-linear-gradient(
+      0deg, transparent 0px, transparent 2px,
+      rgba(92,240,255,0.012) 2px, rgba(92,240,255,0.012) 3px);
+  }
+</style>
+</head>
+<body>
+
+<div id="wonder">
+  <div id="top">
+    <span class="brand">◈ WONDER</span>
+    <span class="badge" id="bState">FROZEN</span>
+    <span class="badge" id="bMode">—</span>
+    <span class="badge" id="bClock">3·9·81·3</span>
+    <span class="spacer"></span>
+    <span class="badge" id="bTakt">TAKT 0</span>
+    <span class="time" id="clock">--:--:--</span>
+  </div>
+
+  <aside id="left">
+    <div class="grupp">
+      <h3>◈ parameter</h3>
+      <div class="reihe"><span>atem</span><span class="w" id="pAtem">3</span></div>
+      <div class="balken"><i id="bAtem" style="width:4%"></i></div>
+      <div class="reihe"><span>takt</span><span class="p" id="pTakt">0</span></div>
+      <div class="balken"><i id="bTakt" style="width:0%;background:var(--pink)"></i></div>
+      <div class="reihe"><span>masse</span><span>1 : 1</span></div>
+      <div class="reihe"><span>kosten</span><span>50 / 50</span></div>
+      <div class="reihe"><span>toleranz</span><span>0.150</span></div>
+    </div>
+    <div class="grupp">
+      <h3>◈ achsen</h3>
+      <div class="reihe"><span>x · arg</span><span class="g">aktiv</span></div>
+      <div class="reihe"><span>y · xarg</span><span class="g">aktiv</span></div>
+      <div class="reihe"><span>z · 3tearg</span><span class="w">sync</span></div>
+      <div class="reihe"><span>u · marker</span><span class="g">real</span></div>
+      <div class="reihe"><span>v · zustand</span><span class="p">direkt</span></div>
+      <div class="reihe"><span>w · resonanz</span><span class="w">>100%</span></div>
+    </div>
+    <div class="grupp">
+      <h3>◈ netz</h3>
+      <div class="reihe"><span>files</span><span>26</span></div>
+      <div class="reihe"><span>voll kontakt</span><span class="g">10</span></div>
+      <div class="reihe"><span>marker</span><span class="w">11</span></div>
+      <div class="reihe"><span>fehlt</span><span class="p">5</span></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="panel"><span class="cap">◈ brett · 8×8</span><canvas id="cChess"></canvas></div>
+    <div class="panel"><span class="cap">◈ spektrum · wärme</span><canvas id="cHeat"></canvas></div>
+  </main>
+
+  <aside id="right">
+    <div class="grupp">
+      <h3>◈ zustand</h3>
+      <div class="srow"><span>phase</span><span class="gold" id="sPhase">frozen</span></div>
+      <div class="srow"><span>atemwert</span><span class="cyan" id="sAtem">3</span></div>
+      <div class="srow"><span>resonanz</span><span class="pink" id="sRes">—</span></div>
+      <div class="srow"><span>puls</span><span class="green" id="sPuls">0.00</span></div>
+    </div>
+    <div class="grupp">
+      <h3>◈ elemente</h3>
+      <div class="srow"><span>eis</span><span class="cyan">◉ bereit</span></div>
+      <div class="srow"><span>feuer</span><span style="color:var(--orange)">◎ wartet</span></div>
+      <div class="srow"><span>dampf</span><span style="color:var(--violet)">◆ wartet</span></div>
+      <div class="srow"><span>regen</span><span class="green">△ wartet</span></div>
+    </div>
+    <div class="grupp">
+      <h3>◈ regel</h3>
+      <div style="font-size:10px;color:var(--dim);line-height:1.7">
+        nichts wird schöngeredet<br>
+        nichts läuft, was nicht läuft<br>
+        <b style="color:var(--gold)">enter</b> = warten<br>
+        <b style="color:var(--glow)">enter</b> erneut = takt<br>
+        3× selbe frage = warnung
+      </div>
+    </div>
+  </aside>
+
+  <div id="bottom">
+    <div class="panel"><span class="cap">◈ kanal α · 3</span><canvas id="cS1"></canvas></div>
+    <div class="panel"><span class="cap">◈ kanal β · 9</span><canvas id="cS2"></canvas></div>
+    <div class="panel"><span class="cap">◈ kanal γ · 81</span><canvas id="cS3"></canvas></div>
+  </div>
+</div>
+
+<div id="waitmark">WAIT</div>
+
+<div id="gate">
+  <h1>WONDER</h1>
+  <div class="unt">3 · 9 · 81 · 3</div>
+  <div class="hint">◈ drücke ENTER ◈</div>
+</div>
+
+<script>
+"use strict";
+
+/* ═══════════════════════════════════════════════════════════════
+   WONDER · WAIT STATE
+   frozen → enter → wait → enter → takt → ...
+   nichts läuft, was nicht laufen soll
+   ═══════════════════════════════════════════════════════════════ */
+
+const state = {
+  phase: 'frozen',        // frozen · wait · takt
+  takt: 0,
+  atemIdx: 0,
+  atemT: 0,
+  puls: 0,
+  resonanz: 0,
+  elIdx: 0,
+};
+
+const ATEM  = [3, 9, 27, 81, 41, 9, 3];
+const HALTEN = [0.6, 0.8, 1.0, 1.8, 2.6, 1.0, 0.6];
+const EL = [
+  { col:'#5cf0ff', name:'eis' },
+  { col:'#ff8a2a', name:'feuer' },
+  { col:'#b388ff', name:'dampf' },
+  { col:'#39ff88', name:'regen' },
+];
+
+/* ─── canvas setup ───────────────────────────────────────────── */
+function setupCanvas(cv){
+  const dpr = Math.min(devicePixelRatio||1, 2);
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, r.width * dpr);
+  cv.height = Math.max(1, r.height * dpr);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  cv._w = r.width; cv._h = r.height;
+  cv._ctx = ctx;
+  return cv;
+}
+const canvasIds = ['cChess','cHeat','cS1','cS2','cS3'];
+const canvases = {};
+function initCanvases(){
+  canvasIds.forEach(id => canvases[id] = setupCanvas(document.getElementById(id)));
+}
+window.addEventListener('resize', () => {
+  Object.keys(canvases).forEach(k => setupCanvas(canvases[k]));
+});
+
+/* ─── chess · unicode figuren ───────────────────────────────── */
+const CHESS_W = ['♜','♞','♝','♛','♚','♝','♞','♜'];
+const CHESS_B = ['♖','♘','♗','♕','♔','♗','♘','♖'];
+function drawChess(cv, t){
+  const ctx = cv._ctx, W = cv._w, H = cv._h;
+  const N = 8;
+  const pad = 10;
+  const size = Math.min(W, H) - pad*2;
+  const cs = size / N;
+  const ox = (W - size) / 2;
+  const oy = (H - size) / 2;
+
+  // hintergrund
+  ctx.fillStyle = '#06080c';
+  ctx.fillRect(0, 0, W, H);
+
+  const breath = 0.5 + 0.5 * Math.sin(t * 0.6);
+  const el = EL[state.elIdx];
+
+  for (let r = 0; r < N; r++){
+    for (let c = 0; c < N; c++){
+      const hell = (r + c) % 2 === 0;
+      const x = ox + c * cs;
+      const y = oy + r * cs;
+
+      // basis
+      let basis = hell ? '#1a2538' : '#0b101c';
+
+      // puls auf zufälligen zellen (resonanz)
+      const rs = Math.sin((r*7 + c*13) * 1.3 + t * 0.9);
+      if (rs > 0.85 && state.phase !== 'frozen'){
+        const glow = (rs - 0.85) / 0.15;
+        basis = hell
+          ? `rgba(92,240,255,${0.15 + glow * 0.4})`
+          : `rgba(92,240,255,${0.08 + glow * 0.25})`;
+      }
+
+      ctx.fillStyle = basis;
+      ctx.fillRect(x, y, cs, cs);
+
+      // figur in reihe 0 und 7
+      if (r === 0 || r === 7){
+        const sym = r === 0 ? CHESS_B[c] : CHESS_W[c];
+        const colBase = r === 0 ? el.col : '#5cf0ff';
+        const alpha = state.phase === 'frozen'
+          ? 0.55
+          : 0.7 + 0.3 * breath;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = colBase;
+        ctx.shadowColor = colBase;
+        ctx.shadowBlur = 8 + breath * 6;
+        ctx.font = `${Math.floor(cs * 0.7)}px serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(sym, x + cs/2, y + cs/2 + 2);
+        ctx.shadowBlur = 0;
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  // rahmen
+  ctx.strokeStyle = 'rgba(92,240,255,0.15)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(ox - .5, oy - .5, size + 1, size + 1);
+}
+
+/* ─── spektrum heatmap · 10×10 ───────────────────────────────── */
+const heatVals = [];
+for (let i = 0; i < 100; i++) heatVals.push(Math.random());
+
+function drawHeat(cv, t){
+  const ctx = cv._ctx, W = cv._w, H = cv._h;
+  const N = 10;
+  const pad = 10;
+  const size = Math.min(W, H) - pad*2;
+  const cs = size / N;
+  const ox = (W - size) / 2;
+  const oy = (H - size) / 2;
+
+  ctx.fillStyle = '#06080c';
+  ctx.fillRect(0, 0, W, H);
+
+  const breath = state.phase === 'frozen' ? 0 : 0.5 + 0.5 * Math.sin(t * 0.5);
+
+  for (let r = 0; r < N; r++){
+    for (let c = 0; c < N; c++){
+      const i = r * N + c;
+      let v = heatVals[i];
+
+      // bei wait: langsam atmend
+      if (state.phase === 'wait' || state.phase === 'takt'){
+        v = 0.5 + 0.5 * Math.sin(t * 0.4 + heatVals[i] * Math.PI * 2);
+      }
+
+      // farbe: tiefes blau → cyan → weiß
+      const rC = Math.floor(20 + v * 40);
+      const gC = Math.floor(80 + v * 160);
+      const bC = Math.floor(140 + v * 100);
+
+      ctx.fillStyle = `rgb(${rC},${gC},${bC})`;
+      ctx.fillRect(ox + c*cs, oy + r*cs, cs-0.5, cs-0.5);
+
+      // glanz bei hohen werten
+      if (v > 0.8 && state.phase !== 'frozen'){
+        ctx.fillStyle = `rgba(255,255,255,${(v-0.8) * 1.2 * breath})`;
+        ctx.fillRect(ox + c*cs, oy + r*cs, cs-0.5, cs-0.5);
+      }
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(92,240,255,0.15)';
+  ctx.strokeRect(ox - .5, oy - .5, size + 1, size + 1);
+}
+
+/* ─── rechte spalte · farbfeld ───────────────────────────────── */
+// (kommt in rechte spalte, klein) — wir nutzen stattdessen cS3 als farbfeld-ersatz
+
+/* ─── kanäle · 3 wellenformen ────────────────────────────────── */
+const waveHistory = { cS1: [], cS2: [], cS3: [] };
+for (const k in waveHistory){
+  for (let i = 0; i < 300; i++) waveHistory[k].push(0.5);
+}
+
+function drawScope(cv, t, id){
+  const ctx = cv._ctx, W = cv._w, H = cv._h;
+  ctx.fillStyle = '#0b0f18';
+  ctx.fillRect(0, 0, W, H);
+
+  const hist = waveHistory[id];
+  const speed = state.phase === 'frozen' ? 0 : 1;
+
+  // neuer wert
+  let v = 0.5;
+  const amp = state.phase === 'frozen' ? 0 : 1;
+
+  if (id === 'cS1'){
+    // kanal α · 3 · langsam
+    v = 0.5 + Math.sin(t * 0.8) * 0.35 * amp
+        + Math.sin(t * 2.3) * 0.08 * amp;
+  } else if (id === 'cS2'){
+    // kanal β · 9 · mittel
+    v = 0.5 + Math.sin(t * 1.8) * 0.25 * amp
+        + Math.sin(t * 4.7) * 0.12 * amp
+        + (Math.random()-0.5) * 0.04 * amp;
+  } else {
+    // kanal γ · 81 · schnell + puls
+    v = 0.5 + Math.sin(t * 3.2) * 0.20 * amp
+        + Math.sin(t * 9.1) * 0.15 * amp
+        + (Math.random()-0.5) * 0.08 * amp;
+    if (state.puls > 0) v += state.puls * 0.25;
+  }
+
+  hist.push(v);
+  if (hist.length > 300) hist.shift();
+
+  // hintergrund-raster
+  ctx.strokeStyle = 'rgba(92,240,255,0.05)';
+  ctx.lineWidth = 0.5;
+  for (let i = 1; i < 6; i++){
+    const y = (i/6)*H;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+
+  // mittellinie
+  ctx.strokeStyle = 'rgba(92,240,255,0.15)';
+  ctx.beginPath(); ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+
+  // welle
+  const col = id === 'cS1' ? '#5cf0ff'
+            : id === 'cS2' ? '#39ff88'
+            : '#ffd700';
+
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  for (let i = 0; i < hist.length; i++){
+    const x = (i / (hist.length - 1)) * W;
+    const y = (1 - hist[i]) * H;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+/* ─── gate & enter ───────────────────────────────────────────── */
+const gate = document.getElementById('gate');
+const waitmark = document.getElementById('waitmark');
+
+function setPhase(p){
+  state.phase = p;
+  document.getElementById('sPhase').textContent = p;
+  const b = document.getElementById('bState');
+  b.classList.remove('on','wait');
+  if (p === 'frozen'){ b.textContent = 'FROZEN'; }
+  if (p === 'wait'){   b.textContent = 'WAIT';   b.classList.add('wait'); }
+  if (p === 'takt'){   b.textContent = 'TAKT';   b.classList.add('on'); }
+
+  if (p === 'wait') {
+    waitmark.classList.add('on');
+    setTimeout(() => waitmark.classList.remove('on'), 900);
+  }
+}
+
+function enter(){
+  if (state.phase === 'frozen'){
+    gate.classList.add('gone');
+    setPhase('wait');
+    state.atemT = 0;
+    state.atemIdx = 0;
+  } else if (state.phase === 'wait'){
+    setPhase('takt');
+    state.puls = 1;
+    state.takt++;
+    document.getElementById('bTakt').textContent = 'TAKT ' + state.takt;
+    // nach 2s zurück in wait
+    setTimeout(() => {
+      if (state.phase === 'takt') setPhase('wait');
+    }, 2200);
+  } else if (state.phase === 'takt'){
+    // während takt: enter zählt takt hoch
+    state.takt++;
+    state.puls = 1;
+    document.getElementById('bTakt').textContent = 'TAKT ' + state.takt;
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter'){ e.preventDefault(); enter(); }
+});
+gate.addEventListener('click', enter);
+
+/* ─── uhr ────────────────────────────────────────────────────── */
+function tickClock(){
+  const d = new Date();
+  document.getElementById('clock').textContent =
+    String(d.getHours()).padStart(2,'0') + ':' +
+    String(d.getMinutes()).padStart(2,'0') + ':' +
+    String(d.getSeconds()).padStart(2,'0');
+}
+setInterval(tickClock, 1000); tickClock();
+
+/* ─── atem-loop für parameter-panel ─────────────────────────── */
+function atemTick(dt){
+  if (state.phase === 'frozen') return;
+
+  // im wait: atem läuft langsam · im takt: doppelt so schnell
+  const speed = state.phase === 'takt' ? 1.6 : 0.6;
+  state.atemT += dt * speed;
+
+  if (state.atemT >= HALTEN[state.atemIdx]){
+    state.atemT = 0;
+    state.atemIdx++;
+    if (state.atemIdx >= ATEM.length){
+      state.atemIdx = 0;
+      state.elIdx = (state.elIdx + 1) % EL.length;
+      state.puls = 1;
+    } else if (ATEM[state.atemIdx] === 41 || ATEM[state.atemIdx] === 81){
+      state.puls = 0.7;
+    }
+  }
+  if (state.puls > 0) state.puls = Math.max(0, state.puls - dt * 0.9);
+
+  // interpolierter atemwert
+  const a = ATEM[state.atemIdx];
+  const b = ATEM[(state.atemIdx + 1) % ATEM.length];
+  const f = state.atemT / HALTEN[state.atemIdx];
+  const s = f * f * (3 - 2 * f);
+  const wert = a + (b - a) * s;
+
+  // UI
+  document.getElementById('sAtem').textContent = Math.round(wert);
+  document.getElementById('pAtem').textContent = Math.round(wert);
+  document.getElementById('bAtem').style.width = (wert/81*100) + '%';
+  document.getElementById('bTakt').style.width = Math.min(100, state.takt * 10) + '%';
+  document.getElementById('pTakt').textContent = state.takt;
+  document.getElementById('sPuls').textContent = state.puls.toFixed(2);
+  document.getElementById('sRes').textContent =
+    state.puls > 0.5 ? '>' + (100 + Math.round(state.puls * 40)) + '%'
+                     : '—';
+}
+
+/* ─── main loop ──────────────────────────────────────────────── */
+let last = performance.now();
+function loop(now){
+  const dt = (now - last) / 1000;
+  last = now;
+  const t = now / 1000;
+
+  atemTick(dt);
+
+  drawChess(canvases.cChess, t);
+  drawHeat(canvases.cHeat, t);
+  drawScope(canvases.cS1, t, 'cS1');
+  drawScope(canvases.cS2, t, 'cS2');
+  drawScope(canvases.cS3, t, 'cS3');
+
+  requestAnimationFrame(loop);
+}
+
+initCanvases();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
