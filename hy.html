@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>T · E · HH</title>
+<style>
+  html,body{margin:0;background:#000;overflow:hidden;height:100%}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H, dpr;
+function resize(){
+  dpr = Math.min(devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*dpr; cv.height = H*dpr;
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize);
+resize();
+
+// Web Audio: Donner
+let actx = null;
+function thunder(){
+  try {
+    if (!actx) actx = new (AudioContext || webkitAudioContext)();
+    const now = actx.currentTime;
+    const dur = 1.6;
+    const buf = actx.createBuffer(1, actx.sampleRate * dur, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++){
+      const t = i / d.length;
+      const env = Math.pow(1 - t, 1.8) * Math.min(1, t * 20);
+      d[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = actx.createBufferSource();
+    src.buffer = buf;
+    const lp = actx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(800, now);
+    lp.frequency.exponentialRampToValueAtTime(80, now + dur);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.exponentialRampToValueAtTime(0.6, now + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    src.connect(lp).connect(g).connect(actx.destination);
+    src.start(now);
+  } catch(e){}
+}
+
+// Phasen-Timeline
+const PHASES = [
+  { name:'stand',    dur: 900 },     // T steht, zittert
+  { name:'flug',     dur: 900 },     // E fliegt
+  { name:'impact',   dur: 350 },     // Treffer, Blitz, T weg
+  { name:'hh',       dur: 900 },     // HH kommt
+  { name:'settle',   dur: 1200 },    // HH ruht, E ruht
+  { name:'ruhe',     dur: 1800 },    // alles still
+];
+let phaseIdx = 0, phaseT = 0, totalT = 0;
+
+// Positionen
+const T_START   = () => ({ x: W*0.5 + W*0.08, y: H*0.5, rot: 0, size: H*0.42 });
+const E_START   = () => ({ x: W*0.16, y: H*0.22, rot: -0.3, size: H*0.14 });
+const E_END     = () => ({ x: W*0.5 + W*0.08, y: H*0.5, rot: 0.05, size: H*0.14 });
+const HH_START  = () => ({ x: W*0.95, y: H*0.95, rot: 0.5, size: H*0.22 });
+const HH_END    = () => ({ x: W*0.5 + W*0.08 - W*0.18, y: H*0.5 + H*0.15, rot: 0.1, size: H*0.22 });
+
+// Bezier für Tarzan-Bogen
+function bezier(p0, p1, p2, t){
+  const u = 1 - t;
+  return {
+    x: u*u*p0.x + 2*u*t*p1.x + t*t*p2.x,
+    y: u*u*p0.y + 2*u*t*p1.y + t*t*p2.y,
+  };
+}
+
+// Zufalls-Zittern
+function shake(amount){
+  return (Math.random() - 0.5) * amount;
+}
+
+// Zeichnen
+function drawT(pos, alpha, style='normal'){
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(pos.rot);
+  ctx.globalAlpha = alpha;
+  ctx.font = `900 ${pos.size}px Consolas, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  if (style === 'normal'){
+    ctx.fillStyle = '#ff3ea5';
+    ctx.shadowColor = '#ff3ea5';
+    ctx.shadowBlur = 40;
+  }
+  ctx.fillText('T', 0, 0);
+  ctx.restore();
+}
+
+function drawE(pos, alpha){
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(pos.rot);
+  ctx.globalAlpha = alpha;
+  ctx.font = `900 ${pos.size}px Consolas, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#5cf0ff';
+  ctx.shadowColor = '#5cf0ff';
+  ctx.shadowBlur = 30;
+  ctx.fillText('E', 0, 0);
+  ctx.restore();
+}
+
+function drawHH(pos, alpha){
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(pos.rot);
+  ctx.globalAlpha = alpha;
+  ctx.font = `900 ${pos.size}px Consolas, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffd700';
+  ctx.shadowColor = '#ffd700';
+  ctx.shadowBlur = 35;
+  ctx.fillText('HH', 0, 0);
+  ctx.restore();
+}
+
+// T-Position berechnen
+function currentT(){
+  const base = T_START();
+  const ph = PHASES[phaseIdx].name;
+  if (ph === 'stand'){
+    return { ...base, rot: shake(0.008), size: base.size * (1 + Math.sin(totalT*0.004)*0.01) };
+  }
+  if (ph === 'flug'){
+    // T zittert stärker
+    return { ...base, rot: shake(0.015), size: base.size * 1.01 };
+  }
+  if (ph === 'impact'){
+    const f = phaseT / PHASES[phaseIdx].dur;
+    return {
+      x: base.x + f * f * W * 0.9,
+      y: base.y - f * H * 0.15,
+      rot: f * 2.2 + shake(0.03),
+      size: base.size * (1 - f * 0.3),
+    };
+  }
+  if (ph === 'hh' || ph === 'settle' || ph === 'ruhe'){
+    return null; // T ist weg
+  }
+}
+
+// E-Position
+function currentE(){
+  const p0 = E_START();
+  const p2 = E_END();
+  const ph = PHASES[phaseIdx].name;
+
+  if (ph === 'stand'){
+    return { ...p0, rot: -0.3, size: p0.size * 0.9 };
+  }
+  if (ph === 'flug'){
+    const t = phaseT / PHASES[phaseIdx].dur;
+    const te = t * t * (3 - 2 * t); // smoothstep
+    // Kontrollpunkt: oberhalb der mitte, leicht links
+    const cp = { x: W*0.35, y: H*0.12 };
+    const pos = bezier(p0, cp, p2, te);
+    return {
+      x: pos.x, y: pos.y,
+      rot: -0.3 + te * 0.35 + Math.sin(te * Math.PI) * -0.4,
+      size: p0.size * (1 + te * 0.3),
+    };
+  }
+  if (ph === 'impact'){
+    const f = phaseT / PHASES[phaseIdx].dur;
+    return { x: p2.x - f * W*0.06, y: p2.y - f * H*0.02,
+             rot: 0.05 + f * 0.1 + shake(0.02), size: p2.size };
+  }
+  // settle
+  const f = Math.min(1, phaseT / 400);
+  return { ...p2, rot: 0.05, size: p2.size };
+}
+
+// HH-Position
+function currentHH(){
+  const p0 = HH_START();
+  const p2 = HH_END();
+  const ph = PHASES[phaseIdx].name;
+
+  if (ph === 'stand' || ph === 'flug' || ph === 'impact'){
+    return null;
+  }
+  if (ph === 'hh'){
+    const t = phaseT / PHASES[phaseIdx].dur;
+    const te = t * t * (3 - 2 * t);
+    const cp = { x: W*0.75, y: H*0.55 };
+    const pos = bezier(p0, cp, p2, te);
+    return { x: pos.x, y: pos.y, rot: 0.5 - te * 0.4, size: p0.size * (1 - te * 0.15) };
+  }
+  // settle + ruhe
+  return { ...p2, rot: 0.1, size: p2.size };
+}
+
+// Split-Linie
+function drawSplit(alpha){
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(W/2, 0);
+  ctx.lineTo(W/2, H);
+  ctx.stroke();
+
+  // ganz schwach pulsierend
+  const g = ctx.createLinearGradient(W/2 - 40, 0, W/2 + 40, 0);
+  g.addColorStop(0, 'transparent');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.06)');
+  g.addColorStop(1, 'transparent');
+  ctx.fillStyle = g;
+  ctx.fillRect(W/2 - 40, 0, 80, H);
+  ctx.restore();
+}
+
+// Flash
+let flash = 0;
+
+// Loop
+let lastT = performance.now();
+function loop(now){
+  const dt = now - lastT;
+  lastT = now;
+  totalT += dt;
+  phaseT += dt;
+
+  // Szenen-Zittern
+  let sceneShakeX = 0, sceneShakeY = 0;
+  const ph = PHASES[phaseIdx].name;
+  if (ph === 'impact'){
+    const amp = 4 * (1 - phaseT / PHASES[phaseIdx].dur);
+    sceneShakeX = shake(amp);
+    sceneShakeY = shake(amp);
+  }
+  if (ph === 'stand' || ph === 'flug'){
+    sceneShakeX = shake(0.6);
+    sceneShakeY = shake(0.6);
+  }
+
+  // Phase weiter?
+  if (phaseT >= PHASES[phaseIdx].dur){
+    phaseT = 0;
+    phaseIdx++;
+    // Trigger bei Phasen-Wechseln
+    const newPh = PHASES[phaseIdx % PHASES.length].name;
+    if (newPh === 'flug') { thunder(); }
+    if (newPh === 'impact') { flash = 1; thunder(); }
+    if (phaseIdx >= PHASES.length){
+      phaseIdx = 0;
+      // reset
+    }
+  }
+
+  // clear
+  ctx.save();
+  ctx.translate(sceneShakeX, sceneShakeY);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(-20, -20, W+40, H+40);
+
+  // split
+  drawSplit(0.35);
+
+  // T
+  const tPos = currentT();
+  if (tPos){
+    const alpha = ph === 'impact' ? Math.max(0, 1 - (phaseT / PHASES[phaseIdx].dur) * 1.3) : 1;
+    drawT(tPos, alpha);
+  }
+
+  // E
+  const ePos = currentE();
+  if (ePos){
+    drawE(ePos, 1);
+    // Tarzan-Spur
+    if (ph === 'flug'){
+      const t = phaseT / PHASES[phaseIdx].dur;
+      for (let k = 1; k <= 5; k++){
+        const tk = Math.max(0, t - k * 0.06);
+        const cp = { x: W*0.35, y: H*0.12 };
+        const te = tk * tk * (3 - 2 * tk);
+        const p = bezier(E_START(), cp, E_END(), te);
+        ctx.globalAlpha = (1 - k/6) * 0.3;
+        ctx.fillStyle = '#5cf0ff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // HH
+  const hPos = currentHH();
+  if (hPos){
+    drawHH(hPos, 1);
+  }
+
+  // flash overlay
+  if (flash > 0){
+    ctx.fillStyle = `rgba(255,255,255,${flash * 0.7})`;
+    ctx.fillRect(-20, -20, W+40, H+40);
+    flash = Math.max(0, flash - dt / 200);
+  }
+
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+
+// Klick = Neustart
+cv.addEventListener('click', () => { phaseIdx = 0; phaseT = 0; });
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
