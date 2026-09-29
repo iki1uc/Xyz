@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>index · runtime · was läuft wirklich</title>
+<style>
+  :root{
+    --bg:#0a0a0c; --fg:#e8e8ea; --dim:#6a6a72; --linie:#1e1e24;
+    --voll:#3ddc84; --head:#ffd700; --marker:#5a5a72; --fehlt:#ff5a7a; --unklar:#ff8a2a;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+    padding:24px 20px;
+  }
+  header{max-width:1000px;margin:0 auto 20px}
+  h1{margin:0 0 4px;font-size:18px;letter-spacing:.05em}
+  .unter{color:var(--dim);font-size:12px}
+  .bilanz{
+    max-width:1000px;margin:0 auto 20px;padding:12px 16px;
+    border:1px solid var(--linie);border-radius:6px;
+    display:flex;gap:20px;flex-wrap:wrap;
+    font-size:12px;
+  }
+  .bilanz b{font-size:16px;display:block;line-height:1}
+  .bilanz .voll b{color:var(--voll)}
+  .bilanz .head b{color:var(--head)}
+  .bilanz .marker b{color:var(--marker)}
+  .bilanz .fehlt b{color:var(--fehlt)}
+  .bilanz .unklar b{color:var(--unklar)}
+  .bilanz span{color:var(--dim)}
+
+  main{max-width:1000px;margin:0 auto;display:grid;gap:6px}
+  .karte{
+    border:1px solid var(--linie);border-radius:5px;
+    padding:8px 12px;background:#0e0e12;
+    display:grid;grid-template-columns:140px 80px 1fr;gap:12px;
+    align-items:baseline;
+  }
+  .karte.voll   {border-left:3px solid var(--voll)}
+  .karte.head   {border-left:3px solid var(--head)}
+  .karte.marker {border-left:3px solid var(--marker)}
+  .karte.fehlt  {border-left:3px solid var(--fehlt)}
+  .karte.unklar {border-left:3px solid var(--unklar)}
+
+  .name{font-weight:600}
+  .status{font-size:11px;letter-spacing:.5px}
+  .karte.voll   .status{color:var(--voll)}
+  .karte.head   .status{color:var(--head)}
+  .karte.marker .status{color:var(--marker)}
+  .karte.fehlt  .status{color:var(--fehlt)}
+  .karte.unklar .status{color:var(--unklar)}
+  .detail{color:var(--dim);font-size:11.5px}
+  .detail em{color:var(--fg);font-style:normal}
+
+  footer{max-width:1000px;margin:24px auto 0;color:var(--dim);font-size:12px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>index · runtime</h1>
+  <div class="unter">prüft jede datei · zeigt was läuft · nichts wird schöngeredet</div>
+</header>
+
+<div class="bilanz" id="bilanz">
+  <div class="voll"><b id="nVoll">—</b><span>voll kontakt</span></div>
+  <div class="head"><b id="nHead">—</b><span>nur head</span></div>
+  <div class="marker"><b id="nMarker">—</b><span>marker</span></div>
+  <div class="unklar"><b id="nUnklar">—</b><span>unklar</span></div>
+  <div class="fehlt"><b id="nFehlt">—</b><span>fehlt</span></div>
+</div>
+
+<main id="karten"></main>
+
+<footer id="log">prüfe …</footer>
+
+<script>
+"use strict";
+
+// ─── die 26 files im repo · ehrliche liste ────────────────────
+const DATEIEN = [
+  'root.html','brett.html','feld.html','gpunk.html','genstrang.html',
+  'kehre.html','lie.html','ninja.html','hardcore.html','shuffle.html',
+  'tunnel.html','zug.html','probe.html','kopf.html','regler.html',
+  'regel.html','boss.html','basis.html','indexer.html',
+  '1.html','2.html','pe.html','hy.html','hh.html',
+  'blitz.js','index.html'
+];
+
+// ─── prüfen ───────────────────────────────────────────────────
+function analysiere(text, name){
+  // 1 · hat einen head? (<!-- ... name: ... -->)
+  const headMatch = text.match(/<!--([\s\S]*?)-->/);
+  const head = headMatch ? headMatch[1].trim() : null;
+  const hatHead = head && /name\s*:/.test(head);
+
+  // 2 · hat <script>?
+  const scripts = text.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [];
+  const scriptInhalt = scripts.join('\n');
+
+  // 3 · wie viele zeilen echter code?
+  const zeilen = scriptInhalt.split('\n').length;
+
+  // 4 · hat funktionen? (function, =>, window.X =)
+  const hatFunktionen = /function\s+\w+\s*\(|\w+\s*:\s*function|=>\s*{/.test(scriptInhalt);
+  const hatExport = /window\.\w+\s*=/.test(scriptInhalt);
+
+  // 5 · hat requestAnimationFrame / setInterval (läuft selbst)?
+  const laeuftSelbst = /requestAnimationFrame|setInterval/.test(scriptInhalt);
+
+  // 6 · ist es nur ein head ohne body-inhalt? (nur kommentar)
+  const nurHead = hatHead && scripts.length === 0;
+
+  // 7 · ist es nur ein marker? (gar kein html, keine scripts, nur text)
+  const nurMarker = !/<html|<script|<body/i.test(text) && text.length < 3000;
+
+  // ─── urteil ──────────────────────────────────────────────
+  if (nurMarker) return { status:'marker', head, zeilen, detail:'nur text · keine struktur' };
+
+  if (nurHead)   return { status:'head',   head, zeilen:0, detail:'head ja · script nein' };
+
+  if (laeuftSelbst && hatFunktionen)
+    return { status:'voll', head, zeilen, detail:
+      `${zeilen} zeilen · ${hatExport ? 'export ' : ''}läuft selbst` };
+
+  if (hatFunktionen)
+    return { status:'voll', head, zeilen, detail:
+      `${zeilen} zeilen · ${hatExport ? 'export' : 'funktionen · kein loop'}` };
+
+  if (scripts.length > 0)
+    return { status:'unklar', head, zeilen, detail:
+      `${zeilen} zeilen · kein loop · keine funktionen` };
+
+  return { status:'unklar', head, zeilen, detail:'unklare form' };
+}
+
+async function lade(name){
+  try{
+    const r = await fetch(name, { cache:'no-store' });
+    if (!r.ok) return { name, status:'fehlt', head:null, detail:`HTTP ${r.status}` };
+    const t = await r.text();
+    return { name, ...analysiere(t, name) };
+  }catch(e){
+    return { name, status:'fehlt', head:null, detail:'nicht lesbar' };
+  }
+}
+
+// ─── rendern ──────────────────────────────────────────────────
+function karte(d){
+  const el = document.createElement('div');
+  el.className = 'karte ' + d.status;
+  const headKurz = d.head
+    ? (d.head.split('\n')[0].replace(/name\s*:\s*/,'').slice(0,60))
+    : '—';
+  el.innerHTML =
+    '<div class="name">' + d.name + '</div>' +
+    '<div class="status">' + d.status.toUpperCase() + '</div>' +
+    '<div class="detail"><em>' + headKurz + '</em> · ' + d.detail + '</div>';
+  return el;
+}
+
+async function main(){
+  const ziel = document.getElementById('karten');
+  const log  = document.getElementById('log');
+
+  const alle = await Promise.all(DATEIEN.map(lade));
+
+  // sortieren: voll · head · unklar · marker · fehlt
+  const rang = { voll:0, head:1, unklar:2, marker:3, fehlt:4 };
+  alle.sort((a,b) => (rang[a.status]-rang[b.status]) || a.name.localeCompare(b.name));
+
+  ziel.innerHTML = '';
+  const zähler = { voll:0, head:0, marker:0, unklar:0, fehlt:0 };
+
+  for (const d of alle){
+    zähler[d.status]++;
+    ziel.appendChild(karte(d));
+  }
+
+  document.getElementById('nVoll').textContent   = zähler.voll;
+  document.getElementById('nHead').textContent   = zähler.head;
+  document.getElementById('nMarker').textContent = zähler.marker;
+  document.getElementById('nUnklar').textContent = zähler.unklar;
+  document.getElementById('nFehlt').textContent  = zähler.fehlt;
+
+  log.textContent =
+    'fertig · ' + alle.length + ' files geprüft · ' +
+    zähler.voll + ' voll · ' +
+    zähler.head + ' head · ' +
+    zähler.unklar + ' unklar · ' +
+    zähler.marker + ' marker · ' +
+    zähler.fehlt + ' fehlt';
+}
+
+main();
+</script>
+</body>
+</html>
