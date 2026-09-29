@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>◈ kopf · head to head · 9×9</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#02060a;color:#c8d8e8;font-family:Consolas,monospace;
+       min-height:100vh;display:flex;align-items:center;justify-content:center;
+       padding:16px;gap:18px;flex-wrap:wrap}
+  #g{display:grid;grid-template-columns:repeat(9,44px);gap:2px}
+  .c{aspect-ratio:1;background:#06101c;border:1px solid #ffffff10;
+     border-radius:3px;display:flex;align-items:center;justify-content:center;
+     font-size:14px;transition:.2s;color:#3a4a5a}
+  .c.b{background:#000;color:#fff;border-color:#ff3ea5;box-shadow:0 0 8px #ff3ea5}
+  .c.w{background:#fff;color:#000;border-color:#39ff88;box-shadow:0 0 8px #39ff88}
+  .c.hb{background:#ff3ea5;color:#000;border-color:#ff3ea5;box-shadow:0 0 14px #ff3ea5}
+  .c.hw{background:#39ff88;color:#000;border-color:#39ff88;box-shadow:0 0 14px #39ff88}
+  .c.tref{background:#ffd700;color:#000;border-color:#ffd700;box-shadow:0 0 20px #ffd700;animation:p 1s infinite}
+  @keyframes p{50%{transform:scale(1.15)}}
+  #side{min-width:280px;font-size:11px;line-height:1.8}
+  h1{font-size:12px;letter-spacing:4px;color:#ff3ea5;margin-bottom:12px;
+     text-transform:uppercase;font-weight:400}
+  h2{font-size:9px;letter-spacing:2px;color:#5cf0ff;margin:12px 0 6px;
+     border-bottom:1px solid #ffffff08;padding-bottom:3px;text-transform:uppercase;
+     font-weight:400}
+  .r{display:flex;justify-content:space-between;padding:2px 0;
+     border-bottom:1px dashed #ffffff08;font-size:10px}
+  .r span:first-child{color:#5a7288}
+  .r span:last-child{font-weight:bold}
+  .pink{color:#ff3ea5!important}
+  .green{color:#39ff88!important}
+  .gold{color:#ffd700!important}
+  button{width:100%;margin-top:6px;background:#0c1828;border:1px solid #ffffff22;
+         color:#c8d8e8;padding:8px;border-radius:3px;font-family:inherit;
+         font-size:10px;letter-spacing:2px;cursor:pointer;text-transform:uppercase}
+  button:hover{border-color:#ffd700;color:#ffd700}
+  button.on{border-color:#39ff88;color:#39ff88}
+</style>
+</head>
+<body>
+<div id="g"></div>
+<div id="side">
+  <h1>◈ kopf · head to head</h1>
+
+  <h2>◈ stand</h2>
+  <div class="r"><span>zug</span><span id="sz">0</span></div>
+  <div class="r"><span>schwarz</span><span id="sb" class="pink">—</span></div>
+  <div class="r"><span>weiß</span><span id="sw" class="green">—</span></div>
+  <div class="r"><span>abstand</span><span id="sd">—</span></div>
+  <div class="r"><span>stand</span><span id="ss">bereit</span></div>
+
+  <h2>◈ runden</h2>
+  <div class="r"><span>treffer</span><span id="st" class="gold">0</span></div>
+  <div class="r"><span>zurück gelaufen</span><span id="sr">0</span></div>
+
+  <button id="step">▶ ein schritt</button>
+  <button id="play">▶▶ auto</button>
+  <button id="reset">↺ reset</button>
+
+  <h2>◈ regel</h2>
+  <div style="font-size:9.5px;color:#5a7288;line-height:1.7">
+    jede schlange läuft 1 feld pro schritt<br>
+    aufeinander zu · gerade linie<br>
+    treffen in der mitte: <b class="gold">◈</b><br>
+    dann <b class="gold">kehre</b> · zurück · neue runde
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════
+   KOPF · HEAD TO HEAD · 9×9
+   zwei schlangen · 3 glieder · aufeinander zu
+   ═══════════════════════════════════════════════════════════ */
+
+const N = 9;
+const gEl = document.getElementById('g');
+const cells = [];
+for(let i = 0; i < N*N; i++){
+  const c = document.createElement('div');
+  c.className = 'c';
+  c.textContent = '·';
+  gEl.appendChild(c);
+  cells.push(c);
+}
+
+// ─── STATE ─────────────────────────────────────────────────
+const S = {
+  // schwarze schlange: kopf bei (r,c), kommt von oben links
+  // weiße schlange: kopf bei (r,c), kommt von unten rechts
+  bKopf: {r:0, c:0},        // schwarz kopf
+  wKopf: {r:8, c:8},        // weiß kopf
+  bBody: [{r:0,c:0}],       // körper glieder (rückwärts)
+  wBody: [{r:8,c:8}],
+  zug: 0,
+  treffer: 0,
+  zurueck: 0,
+  modus: 'hin',             // 'hin' | 'zurueck' | 'treffer'
+  playing: false,
+  timer: null,
+  len: 3
+};
+
+// ─── ZEICHNEN ──────────────────────────────────────────────
+function idx(r, c){ return r * N + c; }
+
+function draw(){
+  cells.forEach(c => { c.className = 'c'; c.textContent = '·'; });
+
+  // schlange schwarz (body zuerst, dann head)
+  S.bBody.forEach((p, i) => {
+    const head = i === 0;
+    cells[idx(p.r, p.c)].className = 'c ' + (head ? 'hb' : 'b');
+    cells[idx(p.r, p.c)].textContent = head ? '◉' : '●';
+  });
+  // weiße schlange
+  S.wBody.forEach((p, i) => {
+    const head = i === 0;
+    cells[idx(p.r, p.c)].className = 'c ' + (head ? 'hw' : 'w');
+    cells[idx(p.r, p.c)].textContent = head ? '◉' : '●';
+  });
+
+  // treffer markieren wenn im treffer-modus
+  if(S.modus === 'treffer'){
+    const mid = Math.floor(N/2);
+    // mitte zeigen
+    cells[idx(mid, mid)].className = 'c tref';
+    cells[idx(mid, mid)].textContent = '◈';
+    // wenn gerade länge, zeig auch mitte-1
+    if(N % 2 === 0){
+      cells[idx(mid-1, mid-1)].className = 'c tref';
+      cells[idx(mid-1, mid-1)].textContent = '◈';
+    }
+  }
+
+  // UI update
+  document.getElementById('sz').textContent = S.zug;
+  document.getElementById('sb').textContent = `(${S.bKopf.r},${S.bKopf.c})`;
+  document.getElementById('sw').textContent = `(${S.wKopf.r},${S.wKopf.c})`;
+  const dr = Math.abs(S.bKopf.r - S.wKopf.r);
+  const dc = Math.abs(S.bKopf.c - S.wKopf.c);
+  document.getElementById('sd').textContent = `${dr + dc} felder`;
+  document.getElementById('ss').textContent = 
+    S.modus === 'treffer' ? 'TREFFER' :
+    S.modus === 'zurueck' ? 'zurück' : 'hin';
+  document.getElementById('st').textContent = S.treffer;
+  document.getElementById('sr').textContent = S.zurueck;
+}
+
+// ─── SCHRITT ───────────────────────────────────────────────
+function step(){
+  S.zug++;
+
+  if(S.modus === 'treffer'){
+    // nach treffer: kehre startet
+    S.modus = 'zurueck';
+    draw();
+    return;
+  }
+
+  if(S.modus === 'hin'){
+    // schwarz läuft nach unten rechts
+    // weiß läuft nach oben links
+    const bNew = {
+      r: S.bKopf.r + (S.bKopf.r < Math.floor(N/2) ? 1 : 0),
+      c: S.bKopf.c + (S.bKopf.c < Math.floor(N/2) ? 1 : 0)
+    };
+    const wNew = {
+      r: S.wKopf.r - (S.wKopf.r > Math.floor(N/2) ? 1 : 0),
+      c: S.wKopf.c - (S.wKopf.c > Math.floor(N/2) ? 1 : 0)
+    };
+
+    // body update: kopf vorne, rest hinterher
+    S.bBody.unshift(bNew);
+    if(S.bBody.length > S.len) S.bBody.pop();
+    S.wBody.unshift(wNew);
+    if(S.wBody.length > S.len) S.wBody.pop();
+    S.bKopf = bNew;
+    S.wKopf = wNew;
+
+    // treffer prüfen
+    const dr = Math.abs(S.bKopf.r - S.wKopf.r);
+    const dc = Math.abs(S.bKopf.c - S.wKopf.c);
+    if(dr + dc <= 1 || (S.bKopf.r === S.wKopf.r && S.bKopf.c === S.wKopf.c)){
+      S.modus = 'treffer';
+      S.treffer++;
+    } else if(S.bKopf.r >= Math.floor(N/2) && S.bKopf.c >= Math.floor(N/2)){
+      // sicherheitshalber: treffer wenn beide mitte erreicht
+      S.modus = 'treffer';
+      S.treffer++;
+    }
+  } 
+  else if(S.modus === 'zurueck'){
+    // kehre: beide zurück zum anfang
+    const bNew = {
+      r: Math.max(0, S.bKopf.r - 1),
+      c: Math.max(0, S.bKopf.c - 1)
+    };
+    const wNew = {
+      r: Math.min(N-1, S.wKopf.r + 1),
+      c: Math.min(N-1, S.wKopf.c + 1)
+    };
+    S.bBody.unshift(bNew);
+    if(S.bBody.length > S.len) S.bBody.pop();
+    S.wBody.unshift(wNew);
+    if(S.wBody.length > S.len) S.wBody.pop();
+    S.bKopf = bNew;
+    S.wKopf = wNew;
+
+    // fertig?
+    if(S.bKopf.r === 0 && S.bKopf.c === 0 && S.wKopf.r === N-1 && S.wKopf.c === N-1){
+      S.zurueck++;
+      S.modus = 'hin';
+    }
+  }
+
+  draw();
+}
+
+// ─── PLAY ──────────────────────────────────────────────────
+function togglePlay(){
+  S.playing = !S.playing;
+  const b = document.getElementById('play');
+  if(S.playing){
+    b.classList.add('on');
+    b.textContent = '⏸ stop';
+    S.timer = setInterval(step, 280);
+  } else {
+    b.classList.remove('on');
+    b.textContent = '▶▶ auto';
+    clearInterval(S.timer);
+  }
+}
+
+// ─── RESET ─────────────────────────────────────────────────
+function reset(){
+  clearInterval(S.timer);
+  S.playing = false;
+  S.bKopf = {r:0, c:0};
+  S.wKopf = {r:N-1, c:N-1};
+  S.bBody = [{r:0,c:0}];
+  S.wBody = [{r:N-1,c:N-1}];
+  S.zug = 0;
+  S.treffer = 0;
+  S.zurueck = 0;
+  S.modus = 'hin';
+  document.getElementById('play').classList.remove('on');
+  document.getElementById('play').textContent = '▶▶ auto';
+  draw();
+}
+
+document.getElementById('step').onclick = step;
+document.getElementById('play').onclick = togglePlay;
+document.getElementById('reset').onclick = reset;
+
+// ─── INIT ──────────────────────────────────────────────────
+draw();
+
+window.kopf = {
+  step, play: togglePlay, reset,
+  state: () => ({...S, bBody:[...S.bBody], wBody:[...S.wBody]})
+};
+</script>
+</body>
+</html>
