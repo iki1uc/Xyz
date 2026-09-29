@@ -1,9 +1,358 @@
-<!--
-name: zug · ein schritt · vor-schau · nicht das ganze brett
-nutzt: von-feld · nach-feld · figur · konsequenz · (kommt aus brett)
-sitzt: vorschau-schicht · klein · einzelstück · keine zentrale
-fügt: ← brett (liefert partien) · ← lie (was davor lag) · → kehre · ↔ feld
-regel: ein zug · nicht alle · zeigt nur die eine konsequenz
-       keine liste · kein reset · kein gedächtnis
-       kosten 50/50 · 3× selbe frage = warnung
--->
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>urteil · 12 · 3 · kein ausweg</title>
+<style>
+  html,body{margin:0;background:#0a0a0c;overflow:hidden;height:100%;cursor:none}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H, dpr;
+
+function resize(){
+  dpr = Math.min(devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*dpr; cv.height = H*dpr;
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize);
+resize();
+
+// ─── JURY · 12 figuren · 12 symbole ─────────────────────────
+const JURY_SYM = ['◉','↗','↘','3','9','↘','↗','◎','◆','△','▣','↺'];
+
+// ─── KAPITEL · tarantino ────────────────────────────────────
+// kapitel dauert: wie lange im jeweiligen zustand
+const KAPITEL = [
+  { name:'I.   die jury',      dauer: 14 },
+  { name:'II.  der angeklagte', dauer: 12 },
+  { name:'III. die beratung',   dauer: 16 },
+  { name:'IV.  das urteil',     dauer: 10 },
+];
+const STILLE = 2.4;  // sekunden zwischen den runden
+
+// ─── STATE ──────────────────────────────────────────────────
+let T = 0;               // gesamtzeit
+let phase = 0;           // 0..3 kapitel, 4 = stille, dann zurück
+let phaseT = 0;
+let runde = 0;
+let juryDa = [];         // 0..1 wie sichtbar jede figur ist
+let angeklagtDa = 0;
+let urteil = null;       // { wert, t }
+let atem = 0;            // puls
+let schlag = 0;          // puls-schlag
+let letzterSchlag = 0;
+let staub = [];
+
+// initial jury unsichtbar
+for (let i = 0; i < 12; i++) juryDa.push(0);
+
+// staub · körnung
+for (let i = 0; i < 140; i++){
+  staub.push({
+    x: Math.random(), y: Math.random(),
+    r: Math.random() * 0.8 + 0.2,
+    p: Math.random() * Math.PI * 2,
+    s: Math.random() * 0.15 + 0.03,
+  });
+}
+
+// ─── zeichnen ───────────────────────────────────────────────
+function draw(){
+  // hintergrund
+  const bg = ctx.createRadialGradient(W/2, H*0.55, 0, W/2, H*0.55, Math.max(W,H)*0.85);
+  bg.addColorStop(0, '#101015');
+  bg.addColorStop(1, '#02020a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // staub · körnung
+  staub.forEach(s => {
+    const tw = 0.5 + Math.sin(T * s.s + s.p) * 0.5;
+    ctx.fillStyle = `rgba(220,220,230,${0.04 + tw * 0.06})`;
+    ctx.beginPath();
+    ctx.arc(s.x*W, s.y*H, s.r, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // licht von oben · schmaler kegel
+  const strahl = ctx.createLinearGradient(W/2, 0, W/2, H);
+  strahl.addColorStop(0, 'rgba(220,220,240,0.06)');
+  strahl.addColorStop(0.5, 'rgba(180,180,200,0.02)');
+  strahl.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = strahl;
+  ctx.beginPath();
+  ctx.moveTo(W*0.32, 0);
+  ctx.lineTo(W*0.68, 0);
+  ctx.lineTo(W*0.85, H);
+  ctx.lineTo(W*0.15, H);
+  ctx.closePath();
+  ctx.fill();
+
+  // jury · im kreis oben
+  const juryR = Math.min(W, H) * 0.34;
+  const juryY = H * 0.32;
+  const juryCX = W / 2;
+
+  for (let i = 0; i < 12; i++){
+    const w = juryDa[i];
+    if (w <= 0.001) continue;
+    // winkel: 12 im kreis, start oben
+    const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+    const x = juryCX + Math.cos(a) * juryR;
+    const y = juryY + Math.sin(a) * juryR * 0.42;
+
+    // blick zum zentrum: leicht gedreht
+    const dx = juryCX - x;
+    const dy = (H * 0.62) - y;
+
+    // atem-bewegung
+    const atm = Math.sin(T * 0.9 + i * 0.7) * 2;
+
+    // körper · dünne linie
+    ctx.strokeStyle = `rgba(220,220,230,${0.15 * w})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 8 + atm * 0.3);
+    ctx.lineTo(x, y + 60 + atm * 0.3);
+    ctx.stroke();
+
+    // symbol · kopf
+    ctx.fillStyle = `rgba(240,240,250,${0.75 * w})`;
+    ctx.shadowColor = 'rgba(220,220,240,0.5)';
+    ctx.shadowBlur = 6 * w;
+    ctx.font = '16px Consolas';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(JURY_SYM[i], x, y + atm * 0.4);
+    ctx.shadowBlur = 0;
+
+    // sichtbare blickrichtung — dünne linie zum angeklagten wenn aktiv
+    if (phase >= 2){
+      ctx.strokeStyle = `rgba(200,200,220,${0.05 * w})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x + 8, y + atm * 0.4);
+      ctx.lineTo(x + 8 + dx * 0.15, y + atm * 0.4 + dy * 0.15);
+      ctx.stroke();
+    }
+  }
+
+  // angeklagter · stuhl · leer · unter der mitte
+  const chX = W / 2;
+  const chY = H * 0.74;
+  const chW = Math.min(W, H) * 0.09;
+  const chH = Math.min(W, H) * 0.13;
+  const accW = angeklagtDa;
+
+  if (accW > 0.001){
+    // stuhl · silhouette
+    ctx.strokeStyle = `rgba(240,240,250,${0.35 * accW})`;
+    ctx.fillStyle = `rgba(10,10,15,${0.7 * accW})`;
+    ctx.lineWidth = 1.5;
+
+    // sitzfläche
+    ctx.beginPath();
+    ctx.rect(chX - chW/2, chY, chW, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    // lehne
+    ctx.beginPath();
+    ctx.moveTo(chX - chW/2, chY);
+    ctx.lineTo(chX - chW/2, chY - chH);
+    ctx.lineTo(chX + chW/2, chY - chH);
+    ctx.lineTo(chX + chW/2, chY);
+    ctx.stroke();
+
+    // beine
+    ctx.beginPath();
+    ctx.moveTo(chX - chW/2 + 2, chY + 4);
+    ctx.lineTo(chX - chW/2 + 2, chY + chH);
+    ctx.moveTo(chX + chW/2 - 2, chY + 4);
+    ctx.lineTo(chX + chW/2 - 2, chY + chH);
+    ctx.stroke();
+
+    // die figur darauf · schatten
+    const figY = chY - chH * 0.55;
+    ctx.fillStyle = `rgba(0,0,0,${0.85 * accW})`;
+    ctx.beginPath();
+    ctx.arc(chX, figY - chH * 0.15, chW * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(chX - chW * 0.22, figY - chH * 0.02, chW * 0.44, chH * 0.55);
+
+    // schimmer · schuldig oder nicht
+    const puls2 = 0.5 + Math.sin(T * 1.2) * 0.5;
+    ctx.strokeStyle = `rgba(255,255,255,${0.04 * accW * puls2})`;
+    ctx.lineWidth = 0.5;
+    ctx.strokeRect(chX - chW * 0.3, figY - chH * 0.25, chW * 0.6, chH * 0.75);
+  }
+
+  // ─── MITTE · beratung / urteil ─────────────────────────
+  const midX = W / 2;
+  const midY = H * 0.58;
+
+  // puls · herzschlag · immer da, verstärkt sich mit phase
+  const herzTakt = 1 - Math.min(1, (T - letzterSchlag) / 0.6);
+  const pulsStark = phase === 2 ? 1 : phase === 3 ? 1.4 : 0.5;
+
+  if (phase >= 2){
+    // pulsierender ring
+    const pr = 40 + (1 - herzTakt) * 60 * pulsStark;
+    ctx.strokeStyle = `rgba(220,220,240,${(1 - herzTakt) * 0.15 * pulsStark})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(midX, midY, pr, 0, Math.PI*2);
+    ctx.stroke();
+  }
+
+  if (phase === 2){
+    // beratung · zahlen erscheinen und wechseln · 3 9 81 3
+    const zahlen = ['3','9','81','3'];
+    const idx = Math.floor((phaseT * 1.4) % zahlen.length);
+    const z = zahlen[idx];
+    const lokalT = (phaseT * 1.4) % 1;
+
+    ctx.fillStyle = `rgba(240,240,250,${0.85 * (0.6 + 0.4 * Math.sin(lokalT * Math.PI))})`;
+    ctx.shadowColor = 'rgba(220,220,240,0.7)';
+    ctx.shadowBlur = 18;
+    ctx.font = `700 ${z === '81' ? 64 : 78}px Consolas`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(z, midX, midY);
+    ctx.shadowBlur = 0;
+  }
+
+  if (phase === 3 && urteil){
+    // urteil · 3 · blutrot · pulsierend
+    const u = urteil;
+    const alter = u.t;
+    const aufb = Math.min(1, alter / 0.5);
+    const rot = 220;
+    const puls3 = 0.6 + Math.sin(alter * 4) * 0.4;
+
+    // ring ums urteil
+    const r = 90 + Math.sin(alter * 2) * 8;
+    ctx.strokeStyle = `rgba(220,30,60,${0.4 * aufb * puls3})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(midX, midY, r, 0, Math.PI*2);
+    ctx.stroke();
+
+    // glühen
+    const gg = ctx.createRadialGradient(midX, midY, 0, midX, midY, 140);
+    gg.addColorStop(0, `rgba(220,30,60,${0.25 * aufb * puls3})`);
+    gg.addColorStop(1, 'transparent');
+    ctx.fillStyle = gg;
+    ctx.beginPath();
+    ctx.arc(midX, midY, 140, 0, Math.PI*2);
+    ctx.fill();
+
+    // die zahl · 3 · immer 3
+    ctx.fillStyle = `rgba(255,240,240,${aufb})`;
+    ctx.shadowColor = 'rgba(220,30,60,0.9)';
+    ctx.shadowBlur = 40;
+    ctx.font = '700 130px Consolas';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('3', midX, midY + 4);
+    ctx.shadowBlur = 0;
+  }
+
+  // ─── filmkorn subtil ─────────────────────────────────────
+  for (let i = 0; i < 40; i++){
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.02})`;
+    ctx.fillRect(x, y, 1, 1);
+  }
+}
+
+// ─── tick ───────────────────────────────────────────────────
+function tick(now){
+  const dt = Math.min(0.05, (now - T) / 1000);
+  T = now / 1000;
+  phaseT += dt;
+
+  // herzschlag · einmal pro ~1.1s in phase 2, ~0.7s in phase 3
+  const takt = phase === 3 ? 0.7 : phase === 2 ? 1.1 : 1.6;
+  if (T - letzterSchlag > takt){
+    letzterSchlag = T;
+    schlag = 1;
+  }
+  schlag *= 0.92;
+
+  // ─── kapitel fortschritt ─────────────────────────────────
+  if (phase < 4){
+    const k = KAPITEL[phase];
+    if (phaseT >= k.dauer){
+      phase++;
+      phaseT = 0;
+      if (phase === 1) startAngeklagter();
+      if (phase === 3) startUrteil();
+      if (phase === 4){
+        // runde beendet
+        runde++;
+      }
+    }
+  } else {
+    // stille
+    if (phaseT >= STILLE){
+      phase = 0;
+      phaseT = 0;
+      juryDa = juryDa.map(() => 0);
+      angeklagtDa = 0;
+      urteil = null;
+    }
+  }
+
+  // ─── jury einblenden in phase 0 ──────────────────────────
+  if (phase === 0){
+    // 12 figuren gestaffelt
+    const pro = 0.7;
+    for (let i = 0; i < 12; i++){
+      const start = i * pro * 0.5;
+      const lokal = Math.max(0, phaseT - start);
+      juryDa[i] = Math.min(1, lokal / 1.2);
+    }
+  } else if (phase === 1){
+    juryDa = juryDa.map(w => Math.min(1, w + dt * 0.5));
+  }
+
+  if (phase === 1){
+    angeklagtDa = Math.min(1, phaseT / 1.4);
+  } else if (phase >= 2){
+    angeklagtDa = Math.min(1, angeklagtDa + dt * 0.4);
+  }
+
+  if (phase === 3 && urteil){
+    urteil.t += dt;
+  }
+
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function startAngeklagter(){
+  angeklagtDa = 0;
+}
+
+function startUrteil(){
+  urteil = { t: 0 };
+}
+
+// Startzeit initialisieren
+T = performance.now() / 1000;
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
