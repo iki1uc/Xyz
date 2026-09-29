@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>T · E · HH · & ☠</title>
+<style>
+  html,body{margin:0;background:#000;overflow:hidden;height:100%;cursor:none}
+  canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H, dpr;
+function resize(){
+  dpr = Math.min(devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*dpr; cv.height = H*dpr;
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize);
+resize();
+
+// ─── Donner ───────────────────────────────────────────────────
+let actx = null;
+function thunder(vol = 0.6){
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const now = actx.currentTime;
+    const dur = 1.8;
+    const buf = actx.createBuffer(1, actx.sampleRate * dur, actx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++){
+      const t = i / d.length;
+      const env = Math.pow(1 - t, 1.6) * Math.min(1, t * 30);
+      d[i] = (Math.random() * 2 - 1) * env;
+    }
+    const src = actx.createBufferSource(); src.buffer = buf;
+    const lp = actx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(900, now);
+    lp.frequency.exponentialRampToValueAtTime(70, now + dur);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.001, now);
+    g.gain.exponentialRampToValueAtTime(vol, now + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    src.connect(lp).connect(g).connect(actx.destination);
+    src.start(now);
+  } catch(e){}
+}
+
+// ─── Phasen ───────────────────────────────────────────────────
+const PHASES = [
+  { name:'stand',  dur: 900  },
+  { name:'flug',   dur: 900  },
+  { name:'impact', dur: 350  },
+  { name:'hh',     dur: 900  },
+  { name:'settle', dur: 1200 },
+  { name:'ruhe',   dur: 1600 },
+];
+let phaseIdx = 0, phaseT = 0, totalT = 0;
+let flash = 0;
+let skullGlow = 0;          // ☠ flackert beim impact
+
+// ─── Positionen ───────────────────────────────────────────────
+const T_START   = () => ({ x: W*0.5 + W*0.08, y: H*0.5,  rot: 0,    size: H*0.42 });
+const E_START   = () => ({ x: W*0.16,         y: H*0.22, rot: -0.3, size: H*0.14 });
+const E_END     = () => ({ x: W*0.5 + W*0.08, y: H*0.5,  rot: 0.05, size: H*0.14 });
+const HH_START  = () => ({ x: W*0.95,         y: H*0.95, rot: 0.5,  size: H*0.22 });
+const HH_END    = () => ({ x: W*0.5 - W*0.18, y: H*0.65, rot: 0.1,  size: H*0.22 });
+
+function bezier(p0, p1, p2, t){
+  const u = 1 - t;
+  return {
+    x: u*u*p0.x + 2*u*t*p1.x + t*t*p2.x,
+    y: u*u*p0.y + 2*u*t*p1.y + t*t*p2.y,
+  };
+}
+const shake = a => (Math.random() - 0.5) * a;
+
+// ─── Glyphen ──────────────────────────────────────────────────
+function glyph(ch, pos, col, alpha, glow){
+  ctx.save();
+  ctx.translate(pos.x, pos.y);
+  ctx.rotate(pos.rot);
+  ctx.globalAlpha = alpha;
+  ctx.font = `900 ${pos.size}px Consolas, monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = col;
+  ctx.shadowColor = col; ctx.shadowBlur = glow;
+  ctx.fillText(ch, 0, 0);
+  ctx.restore();
+}
+
+// ─── Positionen pro Phase ─────────────────────────────────────
+function posT(){
+  const ph = PHASES[phaseIdx].name;
+  const b = T_START();
+  if (ph === 'stand')  return { ...b, rot: shake(0.008),
+                                size: b.size * (1 + Math.sin(totalT*0.004)*0.012) };
+  if (ph === 'flug')   return { ...b, rot: shake(0.016), size: b.size * 1.01 };
+  if (ph === 'impact'){
+    const f = phaseT / PHASES[phaseIdx].dur;
+    return {
+      x: b.x + f*f * W * 0.9,
+      y: b.y - f * H * 0.15,
+      rot: f * 2.2 + shake(0.03),
+      size: b.size * (1 - f * 0.3),
+    };
+  }
+  return null;
+}
+
+function posE(){
+  const ph = PHASES[phaseIdx].name;
+  const p0 = E_START(), p2 = E_END();
+  if (ph === 'stand') return { ...p0, rot: -0.3, size: p0.size * 0.9 };
+  if (ph === 'flug'){
+    const t  = phaseT / PHASES[phaseIdx].dur;
+    const te = t * t * (3 - 2 * t);
+    const cp = { x: W*0.35, y: H*0.12 };
+    const p  = bezier(p0, cp, p2, te);
+    return {
+      x: p.x, y: p.y,
+      rot: -0.3 + te * 0.35 - Math.sin(te * Math.PI) * 0.45,
+      size: p0.size * (1 + te * 0.3),
+    };
+  }
+  if (ph === 'impact'){
+    const f = phaseT / PHASES[phaseIdx].dur;
+    return { x: p2.x - f * W*0.06, y: p2.y - f * H*0.02,
+             rot: 0.05 + f * 0.1 + shake(0.02), size: p2.size };
+  }
+  return { ...p2, rot: 0.05, size: p2.size };
+}
+
+function posHH(){
+  const ph = PHASES[phaseIdx].name;
+  if (ph === 'stand' || ph === 'flug' || ph === 'impact') return null;
+  const p0 = HH_START(), p2 = HH_END();
+  if (ph === 'hh'){
+    const t  = phaseT / PHASES[phaseIdx].dur;
+    const te = t * t * (3 - 2 * t);
+    const cp = { x: W*0.75, y: H*0.55 };
+    const p  = bezier(p0, cp, p2, te);
+    return { x: p.x, y: p.y, rot: 0.5 - te * 0.4, size: p0.size * (1 - te * 0.15) };
+  }
+  return { ...p2, rot: 0.1, size: p2.size };
+}
+
+// ─── Split-Linie ──────────────────────────────────────────────
+function drawSplit(){
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H);
+  ctx.stroke();
+  const g = ctx.createLinearGradient(W/2 - 60, 0, W/2 + 60, 0);
+  g.addColorStop(0,   'transparent');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+  g.addColorStop(1,   'transparent');
+  ctx.fillStyle = g;
+  ctx.fillRect(W/2 - 60, 0, 120, H);
+  ctx.restore();
+}
+
+// ─── Tarzan-Spur ──────────────────────────────────────────────
+function drawTrail(){
+  if (PHASES[phaseIdx].name !== 'flug') return;
+  const t = phaseT / PHASES[phaseIdx].dur;
+  const cp = { x: W*0.35, y: H*0.12 };
+  for (let k = 1; k <= 6; k++){
+    const tk = Math.max(0, t - k * 0.055);
+    const te = tk * tk * (3 - 2 * tk);
+    const p  = bezier(E_START(), cp, E_END(), te);
+    ctx.globalAlpha = (1 - k/7) * 0.35;
+    ctx.fillStyle = '#5cf0ff';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.5 - k * 0.3, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  ☠  TOTENKOPF · ST. PAULI · sitzt unten rechts · immer da
+// ═══════════════════════════════════════════════════════════════
+function drawSkull(){
+  // Größe skaliert mit Screen, aber nie größer als 24% der kürzeren Seite
+  const S = Math.min(W, H) * 0.24;
+  const cx = W - S * 0.55;
+  const cy = H - S * 0.42;
+
+  const a = 0.85 + skullGlow * 0.15;
+  const glowAmt = 6 + skullGlow * 40;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // farben · St. Pauli palette
+  const BRAUN   = '#5a2a1a';
+  const BRAUN_L = '#7a3a26';
+  const ROT     = '#c8102e';
+  const WEISS   = '#e8e8e8';
+
+  // ─── knochen (X) hinter dem schädel ───────────────────────
+  ctx.save();
+  ctx.rotate(-0.35);
+  ctx.globalAlpha = a * 0.9;
+  ctx.fillStyle = WEISS;
+  ctx.shadowColor = ROT;
+  ctx.shadowBlur = glowAmt;
+  for (let s = -1; s <= 1; s += 2){
+    ctx.save();
+    ctx.rotate(s * 0.5);
+    // knochen-schaft
+    ctx.beginPath();
+    ctx.roundRect(-S*0.65, -S*0.05, S*1.3, S*0.10, S*0.05);
+    ctx.fill();
+    // knochen-enden
+    ctx.beginPath(); ctx.arc(-S*0.65, -S*0.02, S*0.06, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-S*0.65,  S*0.02, S*0.06, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc( S*0.65, -S*0.02, S*0.06, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc( S*0.65,  S*0.02, S*0.06, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // ─── schädel-kreis ────────────────────────────────────────
+  ctx.globalAlpha = a;
+  ctx.shadowColor = ROT;
+  ctx.shadowBlur = glowAmt;
+
+  // haupt-kreis
+  ctx.fillStyle = BRAUN;
+  ctx.beginPath();
+  ctx.arc(0, 0, S*0.55, 0, Math.PI*2);
+  ctx.fill();
+
+  // innen-kreis (kontur)
+  ctx.strokeStyle = BRAUN_L;
+  ctx.lineWidth = S*0.035;
+  ctx.beginPath();
+  ctx.arc(0, 0, S*0.48, 0, Math.PI*2);
+  ctx.stroke();
+
+  // ─── augen ────────────────────────────────────────────────
+  ctx.fillStyle = '#000';
+  ctx.shadowBlur = 0;
+  ctx.beginPath();
+  ctx.ellipse(-S*0.20, -S*0.08, S*0.11, S*0.14, -0.15, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse( S*0.20, -S*0.08, S*0.11, S*0.14,  0.15, 0, Math.PI*2);
+  ctx.fill();
+
+  // augen-glühen
+  if (skullGlow > 0.05){
+    ctx.fillStyle = ROT;
+    ctx.globalAlpha = a * skullGlow;
+    ctx.shadowColor = ROT;
+    ctx.shadowBlur = glowAmt * 2;
+    ctx.beginPath();
+    ctx.ellipse(-S*0.20, -S*0.08, S*0.07, S*0.10, -0.15, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse( S*0.20, -S*0.08, S*0.07, S*0.10,  0.15, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = a;
+  }
+
+  // ─── nase ─────────────────────────────────────────────────
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.moveTo(0, S*0.06);
+  ctx.lineTo(-S*0.06, S*0.20);
+  ctx.lineTo( S*0.06, S*0.20);
+  ctx.closePath();
+  ctx.fill();
+
+  // ─── zähne ────────────────────────────────────────────────
+  ctx.fillStyle = WEISS;
+  const zahnW = S*0.07, zahnH = S*0.12;
+  const startX = -zahnW * 2.5;
+  const zahnY  = S*0.30;
+  for (let i = 0; i < 6; i++){
+    ctx.beginPath();
+    ctx.roundRect(startX + i * zahnW, zahnY, zahnW - S*0.012, zahnH, S*0.015);
+    ctx.fill();
+  }
+
+  // ─── kreuz über dem kopf · andeutung ──────────────────────
+  ctx.strokeStyle = ROT;
+  ctx.lineWidth = S*0.05;
+  ctx.lineCap = 'round';
+  const kr = S*0.70;
+  ctx.beginPath();
+  ctx.moveTo(0, -kr);
+  ctx.lineTo(0, -kr + S*0.16);
+  ctx.moveTo(-S*0.08, -kr + S*0.05);
+  ctx.lineTo( S*0.08, -kr + S*0.05);
+  ctx.stroke();
+
+  // ─── untere banderole · andeutung ─────────────────────────
+  ctx.globalAlpha = a * 0.7;
+  ctx.fillStyle = BRAUN_L;
+  const bw = S * 0.85, bh = S * 0.14;
+  ctx.beginPath();
+  ctx.roundRect(-bw/2, S*0.62, bw, bh, S*0.04);
+  ctx.fill();
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+}
+
+// ─── Loop ─────────────────────────────────────────────────────
+let last = performance.now();
+function loop(now){
+  const dt = now - last; last = now;
+  totalT += dt; phaseT += dt;
+
+  if (phaseT >= PHASES[phaseIdx].dur){
+    phaseT = 0;
+    phaseIdx++;
+    if (phaseIdx >= PHASES.length){ phaseIdx = 0; phaseT = 0; }
+    const name = PHASES[phaseIdx].name;
+    if (name === 'flug')   thunder(0.35);
+    if (name === 'impact'){
+      flash = 1;
+      skullGlow = 1;                    // ☠ leuchtet auf
+      thunder(0.85);
+    }
+  }
+
+  // skull-glow klingt ab
+  if (skullGlow > 0) skullGlow = Math.max(0, skullGlow - dt / 900);
+
+  // szenen-zittern
+  const ph = PHASES[phaseIdx].name;
+  let sx = 0, sy = 0;
+  if (ph === 'stand' || ph === 'flug'){ sx = shake(0.6); sy = shake(0.6); }
+  if (ph === 'impact'){
+    const amp = 5 * (1 - phaseT / PHASES[phaseIdx].dur);
+    sx = shake(amp); sy = shake(amp);
+  }
+  if (ph === 'hh'){ sx = shake(0.4); sy = shake(0.4); }
+
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(-20, -20, W+40, H+40);
+
+  drawSplit();
+
+  // ☠ · ganz unten in der schicht, vor den anderen glyphen
+  drawSkull();
+
+  const tP = posT();
+  if (tP){
+    const a = ph === 'impact'
+      ? Math.max(0, 1 - (phaseT / PHASES[phaseIdx].dur) * 1.3)
+      : 1;
+    glyph('T', tP, '#ff3ea5', a, 40);
+  }
+
+  drawTrail();
+  const eP = posE();
+  if (eP) glyph('E', eP, '#5cf0ff', 1, 30);
+
+  const hP = posHH();
+  if (hP) glyph('HH', hP, '#ffd700', 1, 35);
+
+  if (flash > 0){
+    ctx.fillStyle = `rgba(255,255,255,${flash * 0.7})`;
+    ctx.fillRect(-20, -20, W+40, H+40);
+    flash = Math.max(0, flash - dt / 220);
+  }
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+}
+
+// click = restart · hier auch actx frei
+cv.addEventListener('click', () => {
+  phaseIdx = 0; phaseT = 0; totalT = 0;
+  if (actx && actx.state === 'suspended') actx.resume();
+});
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
