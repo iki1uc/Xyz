@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>blitz · donner · 3 9 81 3</title>
+<style>
+  html,body{margin:0;background:#02060a;overflow:hidden;height:100%;cursor:none}
+  canvas{display:block;width:100vw;height:100vh}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════
+   blitz · donner · 3 9 81 3
+   der blitz fällt in 3 · 9 · 81 · 3
+   an jedem knoten blitzt eine zahl auf
+   donner kommt danach — nicht gleichzeitig
+   ═══════════════════════════════════════════════════════════════ */
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H, dpr;
+
+function resize(){
+  dpr = Math.min(devicePixelRatio||1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W*dpr; cv.height = H*dpr;
+  cv.style.width = W+'px'; cv.style.height = H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+addEventListener('resize', resize);
+resize();
+
+// ─── die 4 knoten beim fallen: 3 · 9 · 81 · 3 ─────────────────
+const KNOTEN_SYM = [
+  { z: '3',  col: '#5cf0ff' },
+  { z: '9',  col: '#39ff88' },
+  { z: '81', col: '#ffd700' },
+  { z: '3',  col: '#5cf0ff' },
+];
+
+// ─── was am boden aufleuchtet — rotiert ───────────────────────
+const BODEN_SYM = [
+  { z: '◉', col: '#ff3ea5' },
+  { z: '◈', col: '#ffd700' },
+  { z: '◆', col: '#b388ff' },
+  { z: '△', col: '#5cf0ff' },
+  { z: '▣', col: '#39ff88' },
+  { z: '↺', col: '#ff8a2a' },
+  { z: '◎', col: '#5cf0ff' },
+  { z: '●', col: '#ff3ea5' },
+];
+let bodenIdx = 0;
+
+let blitz = null;
+let donner = [];
+let zeichen = [];
+let letzterSchlag = 0;
+let naechsterIn = 900;
+let t0 = performance.now();
+
+// ─── einen blitz bauen ────────────────────────────────────────
+function neuerBlitz(){
+  const startX = W * (0.15 + Math.random() * 0.7);
+  const zielX  = W * (0.1  + Math.random() * 0.8);
+  const zielY  = H * (0.78 + Math.random() * 0.14);
+  const startY = -30;
+
+  // längen-verhältnis 3 : 9 : 81 : 3
+  const seg = [3, 9, 81, 3];
+  const summe = seg.reduce((a,b)=>a+b, 0);
+  const anteile = seg.map(v => v / summe);
+
+  const pts = [{ x: startX, y: startY, mark: -1 }];
+  let cx = startX, cy = startY;
+  for (let i = 0; i < 4; i++){
+    const dy = (zielY - startY) * anteile[i];
+    const dx = (zielX - startX) * anteile[i] * 1.4 + (Math.random() - 0.5) * W * 0.09;
+    cx += dx; cy += dy;
+    pts.push({ x: cx, y: cy, mark: i });
+    if (i < 3 && Math.random() < 0.55){
+      pts.push({
+        x: cx + (Math.random() - 0.5) * W * 0.14,
+        y: cy + (Math.random() - 0.3) * H * 0.06,
+        mark: -1, ast: true,
+      });
+    }
+  }
+
+  const sym = BODEN_SYM[bodenIdx % BODEN_SYM.length];
+  bodenIdx++;
+
+  return {
+    pts,
+    ziel: { x: zielX, y: zielY },
+    bodenSym: sym,
+    t: 0,
+    leben: 100,
+    donner: false,
+  };
+}
+
+// ─── himmel mit sternen ───────────────────────────────────────
+function drawBg(){
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#02060a');
+  g.addColorStop(1, '#04080f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  if (!drawBg.stars){
+    drawBg.stars = [];
+    for (let i = 0; i < 90; i++){
+      drawBg.stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H * 0.7,
+        r: Math.random() * 1.1 + 0.2,
+        p: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+  const now = performance.now() * 0.001;
+  drawBg.stars.forEach(s => {
+    const tw = 0.5 + Math.sin(now + s.p) * 0.5;
+    ctx.fillStyle = `rgba(200,216,232,${0.15 + tw * 0.2})`;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+// ─── den blitz zeichnen ───────────────────────────────────────
+function drawBlitz(b){
+  const alter = b.t / b.leben;
+  const fade = alter < 0.12 ? 1 : Math.max(0, 1 - (alter - 0.12) / 0.88);
+  if (fade <= 0) return;
+
+  const layers = [
+    { w: 1.5, col: `rgba(255,255,255,${fade})`,       blur: 12 },
+    { w: 5,   col: `rgba(92,240,255,${fade * 0.55})`, blur: 22 },
+    { w: 14,  col: `rgba(255,62,165,${fade * 0.18})`, blur: 32 },
+  ];
+
+  layers.forEach(L => {
+    ctx.strokeStyle = L.col;
+    ctx.lineWidth = L.w;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = L.col;
+    ctx.shadowBlur = L.blur;
+    ctx.beginPath();
+    ctx.moveTo(b.pts[0].x, b.pts[0].y);
+    for (let i = 1; i < b.pts.length; i++){
+      const p = b.pts[i];
+      if (p.ast){
+        ctx.moveTo(b.pts[i-1].x, b.pts[i-1].y);
+        ctx.lineTo(p.x, p.y);
+        ctx.moveTo(b.pts[i-1].x, b.pts[i-1].y);
+      } else {
+        ctx.lineTo(p.x, p.y);
+      }
+    }
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+
+  // knoten-flash — 3 · 9 · 81 · 3 beim fallen
+  b.pts.forEach(p => {
+    if (p.mark < 0 || p.mark > 3) return;
+    const k = KNOTEN_SYM[p.mark];
+    const kAlter = alter * 4 - p.mark;
+    if (kAlter < 0) return;
+    const kFade = Math.max(0, 1 - kAlter * 0.7);
+    if (kFade <= 0) return;
+
+    ctx.globalAlpha = kFade * fade;
+    ctx.fillStyle = k.col;
+    ctx.shadowColor = k.col;
+    ctx.shadowBlur = 22;
+    const size = k.z.length > 1 ? 22 : 28;
+    ctx.font = `${size}px Consolas`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(k.z, p.x + 22, p.y);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  });
+
+  // einschlag am boden
+  if (b.t > 6){
+    const z = b.ziel;
+    const r = 6 + (1 - fade) * 30;
+    const g = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, r * 5);
+    g.addColorStop(0,    `rgba(255,255,255,${fade})`);
+    g.addColorStop(0.35, `rgba(92,240,255,${fade * 0.6})`);
+    g.addColorStop(0.7,  `rgba(255,62,165,${fade * 0.15})`);
+    g.addColorStop(1,    'transparent');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(z.x, z.y, r * 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ─── donner · ringe die sich ausbreiten ───────────────────────
+function drawDonner(){
+  donner = donner.filter(d => {
+    d.t++;
+    const alter = d.t / d.leben;
+    if (alter >= 1) return false;
+    const r = d.r0 + alter * d.rMax;
+    const alpha = (1 - alter) * 0.55;
+
+    ctx.strokeStyle = `rgba(255,215,0,${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255,62,165,${alpha * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r * 0.65, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(92,240,255,${alpha * 0.35})`;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r * 0.35, 0, Math.PI * 2);
+    ctx.stroke();
+
+    return true;
+  });
+}
+
+// ─── die zeichen die bleiben ──────────────────────────────────
+function drawZeichen(){
+  zeichen = zeichen.filter(z => {
+    z.t++;
+    const alter = z.t / z.leben;
+    if (alter >= 1) return false;
+    const alpha = alter < 0.18 ? alter / 0.18 : 1 - (alter - 0.18) / 0.82;
+
+    const r = 28 + Math.sin(z.t * 0.08) * 5;
+
+    ctx.globalAlpha = alpha * 0.7;
+    ctx.strokeStyle = z.sym.col;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(z.x, z.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = z.sym.col;
+    ctx.shadowColor = z.sym.col;
+    ctx.shadowBlur = 26;
+    const size = z.sym.z.length > 1 ? 40 : 52;
+    ctx.font = `${size}px Consolas`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(z.sym.z, z.x, z.y);
+    ctx.shadowBlur = 0;
+
+    for (let i = 0; i < 6; i++){
+      const a = (i / 6) * Math.PI * 2 + z.t * 0.015;
+      ctx.beginPath();
+      ctx.arc(z.x + Math.cos(a) * r, z.y + Math.sin(a) * r, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    return true;
+  });
+}
+
+// ─── loop ─────────────────────────────────────────────────────
+function loop(now){
+  drawBg();
+  drawDonner();
+
+  if (blitz){
+    blitz.t++;
+    drawBlitz(blitz);
+
+    if (!blitz.donner && blitz.t > 24){
+      blitz.donner = true;
+
+      donner.push({
+        x: blitz.ziel.x, y: blitz.ziel.y,
+        r0: 24, rMax: Math.min(W, H) * 0.55,
+        t: 0, leben: 110,
+      });
+ 
+      zeichen.push({
+        x: blitz.ziel.x,
+        y: blitz.ziel.y - 60,
+        sym: blitz.bodenSym,
+        t: 0, leben: 200,
+      });
+    }
+
+    if (blitz.t >= blitz.leben) blitz = null;
+
+  } else {
+    if (now - letzterSchlag > naechsterIn){
+      blitz = neuerBlitz();
+      letzterSchlag = now;
+      naechsterIn = 1100 + Math.random() * 1700;
+    }
+  }
+
+  drawZeichen();
+  requestAnimationFrame(loop);
+}
+
+letzterSchlag = performance.now() - 5000;
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
