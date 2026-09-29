@@ -1,7 +1,286 @@
-<!--
-name: hardcore · quecksilber · metaball · masse/impuls-erhaltung
-nutzt: 10-60 tropfen · merge 0.6 · bounce 0.55 · gravity 0.25 · magnet 0.9
-sitzt: physik-schicht · eigenständig · echte simulation
-fügt: ← lie (was übrig) · → kehre (hin/zurück) · ↔ feld (tropfen auf feld) · ⟳ miss
-regel: masse bleibt · impuls bleibt · 1:1 immer · kosten 50/50 · 3× selbe frage = warnung
--->
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>blitz · donner · deutend</title>
+<style>
+  html, body {
+    margin: 0;
+    background: #02060a;
+    overflow: hidden;
+    height: 100%;
+    cursor: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<script>
+"use strict";
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H;
+
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth;
+  H = innerHeight;
+  cv.width = W * dpr;
+  cv.height = H * dpr;
+  cv.style.width = W + 'px';
+  cv.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize);
+resize();
+
+// ─── ZAHLEN UND ZEICHEN die erscheinen, wenn der Blitz landet ───
+// der Pfad den der Blitz nimmt: 3 → 9 → 81 → 3
+const SYMBOLE = [
+  { z: '3',   col: '#5cf0ff' },
+  { z: '9',   col: '#39ff88' },
+  { z: '81',  col: '#ffd700' },
+  { z: '3',   col: '#5cf0ff' },
+  { z: '◉',   col: '#ff3ea5' },
+  { z: '◈',   col: '#ffd700' },
+  { z: '◆',   col: '#b388ff' },
+  { z: '△',   col: '#5cf0ff' },
+  { z: '▣',   col: '#39ff88' },
+  { z: '↺',   col: '#ff8a2a' },
+];
+let symbIdx = 0;
+
+// ─── BLITZ ─────────────────────────────────────────────────────
+// Ein Blitz ist eine liste von Punkten von oben nach unten.
+// Er ist nicht simuliert. Er ist da, dann nicht mehr.
+let blitz = null;
+
+function neuerBlitz() {
+  const startX = W * (0.15 + Math.random() * 0.7);
+  const zielX  = W * (0.1  + Math.random() * 0.8);
+  const zielY  = H * (0.72 + Math.random() * 0.2);
+  
+  // Der Pfad: in 4 Stufen von oben nach unten
+  // (wie 3 → 9 → 81 → 3 — vier Zustände)
+  const stufen = 4;
+  const pts = [{ x: startX, y: -20 }];
+  for (let i = 1; i <= stufen; i++) {
+    const t = i / stufen;
+    const x = startX + (zielX - startX) * t + (Math.random() - 0.5) * W * 0.08;
+    const y = H * 0.05 + (zielY - H * 0.05) * t;
+    pts.push({ x, y });
+    // abzweigungen
+    if (i < stufen && Math.random() < 0.6) {
+      const bx = x + (Math.random() - 0.5) * W * 0.12;
+      const by = y + Math.random() * H * 0.08;
+      pts.push({ x: bx, y: by, ast: true });
+      pts.push({ x: x + (Math.random() - 0.5) * W * 0.06, y: by + H * 0.04 });
+    }
+  }
+  
+  const sym = SYMBOLE[symbIdx % SYMBOLE.length];
+  symbIdx++;
+  
+  return {
+    pts,
+    ziel: { x: zielX, y: zielY },
+    sym,
+    t: 0,           // alter in frames
+    leben: 90,      // wie lange sichtbar
+    donner: false,
+  };
+}
+
+// ─── DONNER · ringe die sich ausbreiten ────────────────────────
+let donner = [];
+
+// ─── SYMBOLE die bleiben ───────────────────────────────────────
+let zeichen = [];  // { x, y, sym, t, leben }
+
+// ─── ZEICHNEN ──────────────────────────────────────────────────
+function drawBg() {
+  // sehr dunkler himmel, leicht bläulich
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#02060a');
+  g.addColorStop(1, '#04080f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  
+  // ein paar sterne (fix)
+  if (!drawBg.stars) {
+    drawBg.stars = [];
+    for (let i = 0; i < 80; i++) {
+      drawBg.stars.push({ x: Math.random() * W, y: Math.random() * H * 0.7, r: Math.random() * 1.2 });
+    }
+  }
+  ctx.fillStyle = 'rgba(200, 216, 232, 0.25)';
+  drawBg.stars.forEach(s => {
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function drawBlitz(b) {
+  if (!b) return;
+  const alterT = b.t / b.leben;   // 0 → 1
+  const fade = alterT < 0.15 ? 1 : 1 - (alterT - 0.15) / 0.85;
+  if (fade <= 0) return;
+  
+  // drei schichten: weißer kern, cyan glow, pink nachglühen
+  const layers = [
+    { w: 1.2, col: `rgba(255,255,255,${fade})` },
+    { w: 4,   col: `rgba(92,240,255,${fade * 0.6})` },
+    { w: 10,  col: `rgba(255,62,165,${fade * 0.2})` },
+  ];
+  
+  layers.forEach(L => {
+    ctx.strokeStyle = L.col;
+    ctx.lineWidth = L.w;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = L.col;
+    ctx.shadowBlur = L.w * 3;
+    ctx.beginPath();
+    const p0 = b.pts[0];
+    ctx.moveTo(p0.x, p0.y);
+    for (let i = 1; i < b.pts.length; i++) {
+      ctx.lineTo(b.pts[i].x, b.pts[i].y);
+    }
+    ctx.stroke();
+  });
+  ctx.shadowBlur = 0;
+  
+  // einschlagpunkt
+  if (b.t > 8) {
+    const z = b.ziel;
+    const r = 4 + (1 - fade) * 20;
+    const g = ctx.createRadialGradient(z.x, z.y, 0, z.x, z.y, r * 4);
+    g.addColorStop(0, `rgba(255,255,255,${fade})`);
+    g.addColorStop(0.4, `rgba(92,240,255,${fade * 0.7})`);
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(z.x, z.y, r * 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawDonner() {
+  donner = donner.filter(d => {
+    d.t++;
+    const alter = d.t / d.leben;
+    if (alter >= 1) return false;
+    const r = d.r0 + alter * d.rMax;
+    const alpha = (1 - alter) * 0.5;
+    ctx.strokeStyle = `rgba(255,215,0,${alpha})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    // zweiter ring innen, langsamer
+    ctx.strokeStyle = `rgba(255,62,165,${alpha * 0.5})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r * 0.7, 0, Math.PI * 2);
+    ctx.stroke();
+    return true;
+  });
+}
+
+function drawZeichen() {
+  zeichen = zeichen.filter(z => {
+    z.t++;
+    const alter = z.t / z.leben;
+    if (alter >= 1) return false;
+    const alpha = alter < 0.2 ? alter / 0.2 : 1 - (alter - 0.2) / 0.8;
+    
+    // pulsierender ring
+    const r = 30 + Math.sin(z.t * 0.1) * 4;
+    ctx.strokeStyle = z.sym.col.replace(')', `, ${alpha * 0.5})`).replace('rgb', 'rgba');
+    ctx.globalAlpha = alpha * 0.6;
+    ctx.strokeStyle = z.sym.col;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(z.x, z.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    
+    // symbol
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = z.sym.col;
+    ctx.shadowColor = z.sym.col;
+    ctx.shadowBlur = 20;
+    ctx.font = z.sym.z.length > 1 ? '36px Consolas' : '44px Consolas';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(z.sym.z, z.x, z.y);
+    
+    // kleine punkte an den seiten
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + z.t * 0.02;
+      ctx.beginPath();
+      ctx.arc(z.x + Math.cos(a) * r, z.y + Math.sin(a) * r, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    return true;
+  });
+}
+
+// ─── LOOP ──────────────────────────────────────────────────────
+let lastStrike = 0;
+let interval = 1400;
+let t0 = performance.now();
+
+function loop(now) {
+  const dt = now - t0;
+  t0 = now;
+  
+  drawBg();
+  drawDonner();
+  
+  if (blitz) {
+    blitz.t++;
+    drawBlitz(blitz);
+    // donner auslösen — verzögert, wie in echt
+    if (!blitz.donner && blitz.t > 30) {
+      blitz.donner = true;
+      donner.push({
+        x: blitz.ziel.x, y: blitz.ziel.y,
+        r0: 20, rMax: 260,
+        t: 0, leben: 90,
+      });
+      // symbol setzen
+      zeichen.push({
+        x: blitz.ziel.x, y: blitz.ziel.y - 40,
+        sym: blitz.sym,
+        t: 0, leben: 180,
+      });
+    }
+    if (blitz.t >= blitz.leben) {
+      blitz = null;
+    }
+  } else {
+    if (now - lastStrike > interval) {
+      blitz = neuerBlitz();
+      lastStrike = now;
+      interval = 1200 + Math.random() * 1800;
+    }
+  }
+  
+  drawZeichen();
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
