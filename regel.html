@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>index · regel · gegen noise</title>
+<style>...</style>
+</head>
+<body>
+<header>
+  <h1>index</h1>
+  <p>regel · geregelt · gegen noise</p>
+</header>
+<main id="karten"></main>
+<footer id="log"></footer>
+<script>
+const DATEIEN = [
+  'root.html','basis.html','1.html','brett.html','zug.html','feld.html',
+  'kehre.html','lie.html','gp.html','gpunkt.html','genstrang.html',
+  'hardcore.html','ninja.html','shuffle.html','tunnel.html','probe.html',
+  'boss.html','indexer.html'
+];
+
+// regel
+const REGEL = {
+  masse: '1:1',
+  kosten: '50/50',
+  warnung: '3× selbe frage',
+  toleranz: 0.15
+};
+
+// noise erkennen
+function hatHead(text){
+  return /<!--[\s\S]*?name:[\s\S]*?-->/.test(text);
+}
+
+function headLesen(text){
+  const m = text.match(/<!--([\s\S]*?)-->/);
+  if(!m) return null;
+  return m[1].trim();
+}
+
+async function lade(file){
+  try{
+    const r = await fetch(file);
+    if(!r.ok) return {file, status:'fehlt', head:null};
+    const t = await r.text();
+    const head = headLesen(t);
+    return {file, status: head ? 'geregelt' : 'noise', head};
+  }catch(e){
+    return {file, status:'nicht lesbar', head:null};
+  }
+}
+
+function karte(d){
+  const el = document.createElement('div');
+  el.className = 'karte ' + d.status;
+  el.innerHTML = `
+    <div class="kopf">
+      <span class="name">${d.file}</span>
+      <span class="status">${d.status}</span>
+    </div>
+    <pre class="head">${d.head || '— kein head —'}</pre>
+  `;
+  return el;
+}
+
+async function main(){
+  const ziel = document.getElementById('karten');
+  const log = document.getElementById('log');
+  const ergebnisse = await Promise.all(DATEIEN.map(lade));
+  const geregelt = ergebnisse.filter(e => e.status === 'geregelt');
+  const noise = ergebnisse.filter(e => e.status !== 'geregelt');
+
+  ziel.innerHTML = '';
+  geregelt.forEach(e => ziel.appendChild(karte(e)));
+
+  if(noise.length){
+    const n = document.createElement('div');
+    n.className = 'noise-block';
+    n.innerHTML = `<h2>noise (${noise.length})</h2>`;
+    noise.forEach(e => n.appendChild(karte(e)));
+    ziel.appendChild(n);
+  }
+
+  log.textContent = `geregelt: ${geregelt.length} · noise: ${noise.length} · regel: 1:1 · 50/50 · 3× warnung`;
+}
+
+main();
+</script>
+</body>
+</html>
